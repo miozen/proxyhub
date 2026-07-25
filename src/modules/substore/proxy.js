@@ -3,6 +3,18 @@ import https from 'node:https';
 
 const MAX_REWRITE_BYTES = 2 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 5 * 1024 * 1024;
+const SUBSTORE_CSP = [
+  "default-src 'self' data: blob:",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' ws: wss:",
+  "worker-src 'self' blob:",
+  "frame-ancestors 'self'",
+  "base-uri 'self'",
+  "form-action 'self'"
+].join('; ');
 
 function rewriteSubstoreUi(value) {
   return value
@@ -12,7 +24,9 @@ function rewriteSubstoreUi(value) {
     .replaceAll('href="/', 'href="/substore/')
     .replaceAll('src="/', 'src="/substore/')
     .replaceAll('action="/', 'action="/substore/')
-    .replaceAll('url(/', 'url(/substore/');
+    .replace(/(["'`])\/(css|js|assets|fonts|static)\//g, '$1/substore/$2/')
+    .replace(/(["'`])\/(favicon(?:\.[a-z0-9]+)?|manifest(?:\.[a-z0-9]+)?)/gi, '$1/substore/$2')
+    .replace(/url\((["']?)\/(?!\/|substore\/)/g, 'url($1/substore/');
 }
 
 function rewriteLocation(value, target, mountPath) {
@@ -66,6 +80,7 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
       if (responseHeaders['set-cookie']) {
         responseHeaders['set-cookie'] = rewriteCookies(responseHeaders['set-cookie'], mountPath);
       }
+      if (rewriteBody) responseHeaders['content-security-policy'] = SUBSTORE_CSP;
       const contentType = String(responseHeaders['content-type'] || '');
       const shouldRewrite = rewriteBody && /(?:text|javascript|json)/i.test(contentType);
 

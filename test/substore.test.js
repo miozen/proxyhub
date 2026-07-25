@@ -95,6 +95,10 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
       response.write(binary.subarray(0, 1000));
       return response.end(binary.subarray(1000));
     }
+    if (request.url === '/index.js') {
+      response.setHeader('content-type', 'application/javascript');
+      return response.end('loadCss("/css/nutui.css");loadCss(`/css/main.css`)');
+    }
     if (request.url.startsWith('/api/')) {
       response.setHeader('content-type', 'application/json');
       return response.end(JSON.stringify({ path: request.url }));
@@ -131,6 +135,13 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
   const html = await response.text();
   assert.match(html, /href="\/substore\/assets\/app.js"/);
   assert.match(html, /fetch\("\/substore-api\/api\/data"\)/);
+  assert.match(response.headers.get('content-security-policy') || '', /style-src 'self' 'unsafe-inline'/);
+
+  response = await fetch(`${base}/substore/index.js`, { headers: { cookie: owner.cookie } });
+  assert.equal(response.status, 200);
+  const javascript = await response.text();
+  assert.match(javascript, /"\/substore\/css\/nutui\.css"/);
+  assert.match(javascript, /`\/substore\/css\/main\.css`/);
 
   response = await fetch(`${base}/substore-api/api/data?name=test`, { headers: { cookie: owner.cookie } });
   assert.deepEqual(await response.json(), { path: '/api/data?name=test' });
