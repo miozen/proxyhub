@@ -120,7 +120,7 @@ Local evidence on 2026-07-25:
 | P3.A2 remote failure retains cached content | PASS | failed refresh leaves active V1 content usable |
 | P3.A3 editing creates immutable new version | PASS | V1/V2/V3 content, parent and hash assertions |
 | P3.A4 rollback selects requested generation version | PASS | V3 generation then explicit rollback to V1 |
-| P3.A5 workflows green | PENDING | record after R3 commit workflows finish |
+| P3.A5 workflows green | PASS | R3 commit `afed3c5`, check `#12`, both workflows green |
 
 Implementation evidence:
 
@@ -132,7 +132,15 @@ Implementation evidence:
 - activation and rollback switch the unique active version transactionally;
 - owner UI exposes edit, refresh, activate, rollback, hash and state.
 
-P3 remains `IN_PROGRESS` until P3.A5 passes and the user explicitly accepts it.
+P3 state: `ACCEPTED` on 2026-07-25 after 18/18 local tests, green CI and
+explicit user confirmation.
+
+## Next checkpoint
+
+R3 is complete. R4 is limited to P4.1-P4.12 browser, responsive-layout,
+session-restoration and authorization acceptance. No P5 work may be mixed into
+R4.
+
 
 
 
