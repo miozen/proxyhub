@@ -69,6 +69,12 @@ test('P1 acceptance: identity, switches, revocation and authorization', async (c
   let memberHeaders = { cookie: member.cookie, 'x-csrf-token': member.body.csrf_token };
   result = await json(base, '/api/admin/users', { headers: memberHeaders });
   assert.equal(result.response.status, 403);
+  for (const ownerRoute of [
+    '/api/admin/templates', '/api/admin/settings', '/api/admin/substore/status'
+  ]) {
+    result = await json(base, ownerRoute, { headers: memberHeaders });
+    assert.equal(result.response.status, 403, ownerRoute);
+  }
 
   const token = await json(base, '/api/me/token/reset', { method: 'POST', headers: memberHeaders });
   const originalId = database.prepare("SELECT id FROM users WHERE username='member'").get().id;
@@ -142,4 +148,5 @@ test('P1 acceptance: secure cookie flags and login rate limit', async (context) 
   assert.equal(limited.response.status, 429);
   assert.equal(limited.body.error, 'rate_limited');
 });
+
 

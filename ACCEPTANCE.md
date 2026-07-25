@@ -141,6 +141,36 @@ R3 is complete. R4 is limited to P4.1-P4.12 browser, responsive-layout,
 session-restoration and authorization acceptance. No P5 work may be mixed into
 R4.
 
+## R4 - P4 evidence
+
+Local evidence on 2026-07-25:
+
+- Node syntax check: PASS.
+- complete local test suite: PASS, 18/18.
+- `git diff --check`: PASS.
+- real browser desktop viewport: 1440x900.
+- real browser mobile viewport: 390x844.
+- browser console warnings/errors after final verification: 0.
+
+| Gate | State | Evidence |
+|---|---|---|
+| P4.A1 desktop workflow | PASS | owner/member dashboard and all navigation pages; no horizontal overflow |
+| P4.A2 mobile workflow | PASS | responsive cards, off-canvas menu, navigation closes menu, no horizontal overflow |
+| P4.A3 member UI/API authorization | PASS | member sees four allowed tabs; owner sections hidden; owner APIs return 403 |
+| P4.A4 refresh preserves session | PASS | owner and member remain authenticated after reload |
+| P4.A5 no key-page runtime errors | PASS | navigation and role-switch run; final browser log is empty |
+| P4.A6 workflows green | PENDING | record after R4 commit workflows finish |
+
+Browser defects found and fixed:
+
+- login response now includes `status` and `generation_enabled`;
+- login and logout reset the current page to dashboard;
+- login and logout reset the mobile menu state;
+- role switching no longer leaves a blank owner-only page visible to a member.
+
+P4 remains `CODE_COMPLETE` until P4.A6 passes and the user explicitly accepts it.
+
+
 
 
 

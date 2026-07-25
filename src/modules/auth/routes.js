@@ -53,7 +53,13 @@ export function createAuthRouter({ database, config, auth }) {
     attempts.delete(request.ip);
     const raw = auth.createSession(user.id);
     response.setHeader('Set-Cookie', auth.cookie(raw));
-    return response.json({ user: { id: user.id, username: user.username, role: user.role }, csrf_token: auth.csrfToken(raw) });
+    return response.json({
+      user: {
+        id: user.id, username: user.username, role: user.role,
+        status: user.status, generation_enabled: !!user.generation_enabled
+      },
+      csrf_token: auth.csrfToken(raw)
+    });
   });
 
   router.post('/logout', auth.requireUser, auth.requireCsrf, (request, response) => {
@@ -64,6 +70,7 @@ export function createAuthRouter({ database, config, auth }) {
 
   return router;
 }
+
 
 
 

@@ -56,10 +56,10 @@ createApp({
       try {
         const data = await this.api(`/api/auth/${this.authMode}`, { method: 'POST', body: this.authForm });
         if (this.authMode === 'register') { this.flash(data.status === 'active' ? 'Owner 创建成功，请登录' : '注册成功，等待审核'); this.authMode = 'login'; }
-        else { this.user = data.user; this.csrf = data.csrf_token; this.account.username = data.user.username; await this.loadCore(); }
+        else { this.user = data.user; this.csrf = data.csrf_token; this.page = 'dashboard'; this.menuOpen = false; this.account.username = data.user.username; await this.loadCore(); }
       } catch (error) { this.flash(error.message, 'error'); } finally { this.busy = false; }
     },
-    async logout() { try { await this.api('/api/auth/logout', { method: 'POST' }); } finally { this.user = null; this.csrf = ''; } },
+    async logout() { try { await this.api('/api/auth/logout', { method: 'POST' }); } finally { this.user = null; this.csrf = ''; this.page = 'dashboard'; this.menuOpen = false; } },
     async loadCore() { await Promise.all([this.loadSubscriptions(), this.loadRuns(), ...(this.isOwner ? [this.loadUsers(), this.loadTemplates(), this.loadSettings()] : [])]); },
     async refreshPage() {
       try {
@@ -163,6 +163,7 @@ createApp({
     formatTime(value) { return new Date(value).toLocaleString(); }
   }
 }).mount('#app');
+
 
 
 

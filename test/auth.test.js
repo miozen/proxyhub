@@ -51,6 +51,8 @@ test('owner registration, member approval and account security flow', async (con
     method: 'POST', body: { username: 'owner', password: 'owner-password-123' }
   });
   assert.equal(ownerLogin.response.status, 200);
+  assert.equal(ownerLogin.body.user.status, 'active');
+  assert.equal(ownerLogin.body.user.generation_enabled, true);
   const ownerHeaders = {
     cookie: ownerLogin.cookie,
     'x-csrf-token': ownerLogin.body.csrf_token
@@ -91,6 +93,7 @@ test('owner registration, member approval and account security flow', async (con
   result = await json(base, '/api/me', { headers: memberHeaders });
   assert.equal(result.response.status, 401);
 });
+
 
 
 
