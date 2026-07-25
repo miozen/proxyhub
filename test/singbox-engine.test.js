@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { encryptUrl, decryptUrl } from '../src/modules/singbox/crypto.js';
 import { buildRegionalGroups, injectTemplate, normalizeNodes, parseRule } from '../src/modules/singbox/engine.js';
-import { assertSafeUrl } from '../src/modules/singbox/fetch.js';
+import { assertSafeUrl, fetchJsonSafe } from '../src/modules/singbox/fetch.js';
 
 test('encrypts subscription URLs with authenticated encryption', () => {
   const secret = 'test-secret';
@@ -24,14 +24,61 @@ test('filters nodes, builds regional groups and injects x_rule', () => {
     { type: 'direct', tag: 'DIRECT' },
     { type: 'selector', tag: 'Select', x_rule: 'region:HK', outbounds: [] }
   ] }, nodes, groups, byRegion);
-  assert.deepEqual(result.outbounds[1].outbounds, ['[AUTO] HK-A']);
+  assert.deepEqual(result.outbounds[1].outbounds, ['🇭🇰 HK-A']);
   assert.equal(result.outbounds.filter((item) => item.tag === 'HK-A').length, 1);
+});
+
+test('matches the original singbox-center core fixture', () => {
+  // Baseline: Vonzhen/singbox-center src/engine.js at badfd389436ed51450ebad6c9fc9c1c2cc717784.
+  const nodes = normalizeNodes({ outbounds: [
+    { type: 'vless', tag: 'HK-A' },
+    { type: 'vless', tag: 'US-A' },
+    { type: 'trojan', tag: 'Other-A' },
+    { type: 'vless', tag: '套餐到期' },
+    { type: 'selector', tag: 'not-a-node' }
+  ] }, '到期');
+  const { groups, byRegion } = buildRegionalGroups(
+    [{ name: 'Airport', nodes, allowed_regions: ['HK', 'US'] }],
+    { HK: ['HK'], US: ['US'] },
+    { url: 'https://www.gstatic.com/generate_204', interval: '3m', tolerance: 150 }
+  );
+  const output = injectTemplate({ outbounds: [
+    { type: 'direct', tag: '🎯 全球直连' },
+    { type: 'selector', tag: '🗽 节点选择', x_rule: 'main', outbounds: [] },
+    { type: 'selector', tag: '🅾️ OpenAI', x_rule: 'region+direct:US', outbounds: [] }
+  ] }, nodes, groups, byRegion);
+  assert.deepEqual(groups.map((group) => group.tag), ['🇭🇰 HK-Airport', '🇺🇸 US-Airport']);
+  assert.deepEqual(output.outbounds[1].outbounds, ['🇭🇰 HK-Airport', '🇺🇸 US-Airport', 'Other-A']);
+  assert.deepEqual(output.outbounds[2].outbounds, ['🗽 节点选择', '🎯 全球直连', '🇺🇸 US-Airport']);
+  assert.equal(output.outbounds.filter((item) => item.tag === 'HK-A').length, 1);
 });
 
 test('blocks private subscription targets', async () => {
   await assert.rejects(() => assertSafeUrl('http://127.0.0.1/sub'), /unsafe_subscription_target/);
   await assert.rejects(() => assertSafeUrl('file:///etc/passwd'), /unsafe_subscription_url/);
 });
+
+test('enforces subscription timeout and response size limits', async () => {
+  const lookup = async () => [{ address: '203.0.113.10', family: 4 }];
+  await assert.rejects(() => fetchJsonSafe('https://public.example/sub', {
+    timeoutMs: 5,
+    lookup,
+    fetchImpl: (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    })
+  }), /abort|timed out|timeout/i);
+  await assert.rejects(() => fetchJsonSafe('https://public.example/sub', {
+    maxBytes: 4,
+    lookup,
+    fetchImpl: async () => new Response('{"ok":true}', { headers: { 'content-length': '11' } })
+  }), /upstream_too_large/);
+  await assert.rejects(() => fetchJsonSafe('https://public.example/sub', {
+    maxBytes: 4,
+    lookup,
+    fetchImpl: async () => new Response('{"ok":true}')
+  }), /upstream_too_large/);
+});
+
 
 
 

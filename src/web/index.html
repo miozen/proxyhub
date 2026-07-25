@@ -95,7 +95,7 @@
         </section>
 
         <section v-if="page==='system' && isOwner" class="content split">
-          <div class="panel"><div class="panel-head"><h3>系统设置</h3></div><div class="setting-row"><div><strong>开放注册</strong><p>允许新用户提交注册申请</p></div><button class="switch" :class="{on:settings.registration_enabled}" @click="toggleRegistration"><i></i></button></div></div>
+          <div class="panel"><div class="panel-head"><h3>系统设置</h3></div><div class="setting-row"><div><strong>开放注册</strong><p>允许新用户提交注册申请</p></div><button class="switch" :class="{on:settings.registration_enabled}" @click="toggleRegistration"><i></i></button></div><div class="setting-row"><div><strong>生成失败缓存回退</strong><p>失败时返回该用户最近一次成功配置</p></div><button class="switch" :class="{on:settings.generation_cache_fallback_enabled}" @click="toggleGenerationCache"><i></i></button></div></div>
           <div class="panel"><div class="panel-head"><h3>Sub-Store</h3><span class="badge active">已接入</span></div><p>管理页、健康检查与同步任务已统一到 owner 控制台。</p><button @click="page='substore'">打开 Sub-Store</button></div>
         </section>
 
@@ -112,5 +112,6 @@
   <script src="/app.js"></script>
 </body>
 </html>
+
 
 

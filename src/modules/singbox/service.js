@@ -37,7 +37,8 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     const seen = new Set();
     const nodes = sources.flatMap((source) => source.nodes).filter((node) => !seen.has(node.tag) && seen.add(node.tag));
     const { groups, byRegion } = buildRegionalGroups(sources, DEFAULTS.regions, DEFAULTS.urltest);
-    const output = injectTemplate(template, nodes, groups, byRegion);
+    const directTag = template.outbounds.find((outbound) => outbound.type === 'direct')?.tag || '🎯 全球直连';
+    const output = injectTemplate(template, nodes, groups, byRegion, directTag, DEFAULTS.regions);
     return { output, summary: { subscriptions: rows.length, nodes: nodes.length, groups: groups.length, reports } };
   }
 
@@ -54,6 +55,7 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     hashTemplate: (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
   };
 }
+
 
 
 

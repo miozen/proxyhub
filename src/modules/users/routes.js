@@ -87,6 +87,15 @@ export function createUserRouter({ database, auth }) {
     response.json({ success: true, enabled });
   });
 
+  router.put('/admin/settings/generation-cache', auth.requireOwner, auth.requireCsrf, (request, response) => {
+    const enabled = request.body?.enabled === true;
+    database.prepare(`
+      INSERT INTO app_settings(key,value_json,updated_at) VALUES('generation_cache_fallback_enabled',?,?)
+      ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at
+    `).run(JSON.stringify(enabled), new Date().toISOString());
+    response.json({ success: true, enabled });
+  });
+
   router.get('/admin/settings', auth.requireOwner, (_request, response) => {
     const rows = database.prepare('SELECT key,value_json FROM app_settings ORDER BY key').all();
     response.json({ settings: Object.fromEntries(rows.map((row) => [row.key, JSON.parse(row.value_json)])) });
@@ -94,6 +103,7 @@ export function createUserRouter({ database, auth }) {
 
   return router;
 }
+
 
 
 

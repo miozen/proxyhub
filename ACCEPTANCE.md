@@ -65,4 +65,39 @@ R1 is complete.
 3. Add failed-source, isolation, SSRF/bounds and legacy fixture evidence.
 4. Do not enter R3 until P2 acceptance is complete and confirmed.
 
+## R2 - P2 evidence
+
+Baseline:
+
+- original repository: `Vonzhen/singbox-center`;
+- source: `src/engine.js`;
+- fixed commit: `badfd389436ed51450ebad6c9fc9c1c2cc717784`.
+
+Local evidence on 2026-07-25:
+
+- Node syntax check: PASS.
+- complete local test suite: PASS, 17/17.
+- `git diff --check`: PASS.
+- npm high-severity audit: PASS, 0 vulnerabilities.
+
+| Gate | State | Evidence |
+|---|---|---|
+| P2.A1 old/new core fixture parity | PASS | fixed source commit and `matches the original singbox-center core fixture` |
+| P2.A2 one source failure isolation | PASS | P2 API acceptance test retains successful owner source |
+| P2.A3 configurable cache fallback | PASS | enabled returns stale success; disabled returns 502 |
+| P2.A4 cross-user isolation | PASS | output/read/update isolation assertions |
+| P2.A5 SSRF/timeout/size bounds | PASS | private target, abort and declared/streamed size tests |
+| P2.A6 workflows green | PENDING | record after R2 commit workflows finish |
+
+Compatibility corrections made during R2:
+
+- restored flag-prefixed airport-region group tags;
+- restored `main`, `all_regions`, `region+direct` and selector fallback behavior;
+- restored TLS scalar normalization;
+- remove invalid generated outbound/DNS references;
+- preserve arbitrary direct outbound tag used by the active template.
+
+P2 remains `IN_PROGRESS` until P2.A6 passes and the user explicitly accepts it.
+
+
 

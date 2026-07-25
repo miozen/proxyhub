@@ -20,9 +20,12 @@ export function createSingboxRouter({ database, config, auth, service }) {
       response.set('cache-control', 'no-store').json(result.output);
     } catch (error) {
       service.saveRun(user.id, 'error', null, null, error.message);
-      const cached = database.prepare(`SELECT config_json FROM generation_runs
-        WHERE user_id=? AND status='success' AND config_json IS NOT NULL ORDER BY finished_at DESC LIMIT 1`).get(user.id);
-      if (cached) return response.set('x-proxyhub-cache', 'stale').json(JSON.parse(cached.config_json));
+      const fallback = database.prepare("SELECT value_json FROM app_settings WHERE key='generation_cache_fallback_enabled'").get();
+      if (!fallback || JSON.parse(fallback.value_json)) {
+        const cached = database.prepare(`SELECT config_json FROM generation_runs
+          WHERE user_id=? AND status='success' AND config_json IS NOT NULL ORDER BY finished_at DESC LIMIT 1`).get(user.id);
+        if (cached) return response.set('x-proxyhub-cache', 'stale').json(JSON.parse(cached.config_json));
+      }
       response.status(502).json({ error: 'generation_failed' });
     }
   });
@@ -103,6 +106,7 @@ export function createSingboxRouter({ database, config, auth, service }) {
   });
   return router;
 }
+
 
 
 

@@ -13,20 +13,22 @@ function blocked(address) {
     value.startsWith('fea') || value.startsWith('feb');
 }
 
-export async function assertSafeUrl(value) {
+export async function assertSafeUrl(value, { lookup = dns.lookup } = {}) {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('unsafe_subscription_url');
-  const addresses = await dns.lookup(url.hostname, { all: true });
+  const addresses = await lookup(url.hostname, { all: true });
   if (!addresses.length || addresses.some(({ address }) => blocked(address))) throw new Error('unsafe_subscription_target');
   return url;
 }
 
-export async function fetchJsonSafe(value, { timeoutMs = 10_000, maxBytes = 5_000_000 } = {}) {
-  const url = await assertSafeUrl(value);
+export async function fetchJsonSafe(value, {
+  timeoutMs = 10_000, maxBytes = 5_000_000, lookup = dns.lookup, fetchImpl = fetch
+} = {}) {
+  const url = await assertSafeUrl(value, { lookup });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, redirect: 'error', headers: { 'user-agent': 'ProxyHub/0.1' } });
+    const response = await fetchImpl(url, { signal: controller.signal, redirect: 'error', headers: { 'user-agent': 'ProxyHub/0.1' } });
     if (!response.ok) throw new Error(`upstream_http_${response.status}`);
     const declared = Number(response.headers.get('content-length') || 0);
     if (declared > maxBytes) throw new Error('upstream_too_large');
@@ -45,6 +47,7 @@ export async function fetchJsonSafe(value, { timeoutMs = 10_000, maxBytes = 5_00
     clearTimeout(timer);
   }
 }
+
 
 
 
