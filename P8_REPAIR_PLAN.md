@@ -1,6 +1,6 @@
 # P8 Repair Plan
 
-Status: F6 found Sub-Store route regression; replacement fix awaits CI and Alpine retest
+Status: F6R implemented locally and awaiting dev CI plus Alpine acceptance
 Branch: `dev` only  
 Baseline runtime: `dev-b4ca063`  
 Scope: defects and behavior gaps found during Alpine P8 acceptance
@@ -12,29 +12,54 @@ Scope: defects and behavior gaps found during Alpine P8 acceptance
 - Remove the embedded iframe.
 - Keep health, sync settings and history in the ProxyHub Sub-Store page.
 - Add one explicit `Open Sub-Store` action using a new browser tab.
-- Serve the official UI at owner-only `/substore/`.
-- Keep the official API at owner-only `/substore-api/`.
-- Do not restore the old panel user database, `admin/admin` or random paths.
+- Reuse the proven `sub-store-panel` routing model:
+  - ProxyHub management UI is served below `/proxyhub/`;
+  - the official Sub-Store frontend owns `/` and its root assets;
+  - one resettable `/<32 lowercase hex>/` path proxies the Sub-Store backend;
+  - `Open Sub-Store` opens `/?api=<origin + random path>` in a new tab.
+- Retain only the ProxyHub user, session and owner authorization system.
+- Do not restore the old panel user database, JWT authentication or
+  `admin/admin`.
+- The random backend path is an owner-managed Sub-Store access credential. It
+  is stable across restart/update/restore and changes only on explicit reset.
 
 ### 1.2 Sub-Store path compatibility
 
-The pinned upstream UI is not base-path aware. It dynamically requests root
-assets such as `/css/*`, `/js/*` and `/manifests.json`; response-body string
-rewrites alone are not a stable boundary.
+The pinned upstream frontend is a root-path PWA. Proxying it below
+`/substore/` breaks dynamic chunks, manifests, service workers and API path
+resolution. Stop rewriting it for a subpath.
 
-- Add an owner-authenticated, explicit allowlist gateway for required upstream
-  UI roots.
-- Initial allowlist: `/css/`, `/js/`, `/assets/`, `/fonts/`, `/static/`,
-  `/favicon*`, `/manifest*` and `/manifests.json`.
-- Never proxy an arbitrary root path.
-- Never shadow ProxyHub `/api`, `/healthz`, `/vendor` or application assets.
-- Retain redirect, cookie, stream, timeout and size protections.
-- Apply the relaxed upstream-compatible CSP only to Sub-Store UI/gateway
-  responses; keep the ProxyHub CSP unchanged.
-- Capture the pinned image's actual HTML/JS asset requests in a Docker
-  integration fixture so upstream path changes fail CI.
+- Forward `/`, `/css/*`, `/js/*`, `/assets/*`, `/registerSW.js`,
+  `/manifests.json` and other frontend-owned root requests unchanged to the
+  official frontend service.
+- Reserve ProxyHub routes before the frontend catch-all: `/proxyhub/`,
+  `/api/*`, `/healthz`, and the active random backend path.
+- Move ProxyHub browser assets below `/proxyhub/`; API routes remain `/api/*`.
+- Strip the random prefix before proxying to the Sub-Store backend.
+- Preserve WebSocket, streaming, request timeout and response-size protection.
+- Do not rewrite an already configured API URL and never produce duplicate
+  `/<random>/<random>/` prefixes.
+- Serve Sub-Store's required CSP only on its frontend responses; retain the
+  stricter ProxyHub CSP on `/proxyhub/` and ProxyHub APIs.
+- Prevent Sub-Store's service worker from controlling `/proxyhub/`. Prefer a
+  scoped worker response/header if supported; otherwise disable registration
+  while keeping the frontend functional.
+- Add integration fixtures for root HTML, dynamic JS/CSS, manifest,
+  `registerSW.js`, API discovery and the random backend path.
 
-### 1.3 Client subscription URL
+### 1.3 Random backend path
+
+- Store one active Sub-Store path in ProxyHub settings because Sub-Store
+  administration is owner-only.
+- Generate it with cryptographically secure randomness as `/[a-f0-9]{32}`.
+- Show and copy the complete backend URL on the owner Sub-Store page.
+- Reset requires an explicit warning and takes effect immediately.
+- After reset, the old path returns 404 and the new path reaches Sub-Store.
+- Never print the path in routine logs, sync history or health responses.
+- The path is intentionally usable as the Sub-Store backend credential,
+  matching the original panel model; it does not create a second user system.
+
+### 1.4 Client subscription URL
 
 Match `singbox-center` behavior:
 
@@ -57,7 +82,7 @@ Storage change:
 - Existing hash-only tokens are not changed automatically. If one exists and
   cannot be displayed, the UI asks the user to perform one manual reset.
 
-### 1.4 Independent container operations
+### 1.5 Independent container operations
 
 `proxyhub` and `sub-store` remain separate containers and must be independently
 manageable.
@@ -87,7 +112,7 @@ proxyhub rollback [proxyhub|sub-store]
 No component argument means the existing whole-stack behavior for
 start/stop/restart/status/logs. `update` and `rollback` remain component scoped.
 
-### 1.5 UI warning cleanup
+### 1.6 UI warning cleanup
 
 - Add stable `id`, `name`, `for` and autocomplete attributes to form controls.
 - Add a local favicon to remove the root 404.
@@ -169,14 +194,22 @@ Exit:
 
 Exit: browser evidence is recorded for ProxyHub and the official Sub-Store UI.
 
-### F6 - Alpine replacement-SHA acceptance
+### F6R - Restore the proven Sub-Store routing model
 
-- F6.1 publish and pin one replacement `dev-<sha>` image.
-- F6.2 update only ProxyHub from `dev-b4ca063`.
-- F6.3 repeat P8.2-P8.5 on Alpine 3.24.1.
-- F6.4 repeat component update and rollback gates P8.8-P8.9.
-- F6.5 continue P8.6-P8.7 persistence and restore tests.
-- F6.6 record exact image digest, commands and results.
+- F6R.1 replace `/substore/` and `/substore-api/` compatibility gateways with
+  root frontend plus random backend routing.
+- F6R.2 move the ProxyHub dashboard and its browser assets to `/proxyhub/`.
+- F6R.3 add owner APIs and UI for showing/copying/resetting the random path.
+- F6R.4 update `Open Sub-Store` to use
+  `/?api=<encoded origin + random path>`.
+- F6R.5 remove obsolete HTML/API path rewriting and root-asset allowlists.
+- F6R.6 isolate or disable the upstream service worker so it cannot control the
+  ProxyHub management path.
+- F6R.7 diagnose sync separately using the recorded upstream HTTP status/error;
+  do not treat frontend routing as proof of sync success.
+- F6R.8 publish and pin one replacement `dev-<sha>` image.
+- F6R.9 update only ProxyHub on Alpine and repeat P8.2-P8.5.
+- F6R.10 repeat component update/rollback, persistence and restore gates.
 
 Exit: resume the normal P8 plan only after all repair gates pass.
 
@@ -184,7 +217,8 @@ Exit: resume the normal P8 plan only after all repair gates pass.
 
 ```text
 test: reproduce P8 UI and lifecycle defects
-fix: open Sub-Store through an allowlisted gateway
+fix: restore root Sub-Store frontend routing
+feat: add resettable Sub-Store backend path
 feat: restore persistent client subscription URLs
 fix: isolate component lifecycle operations
 fix: complete dashboard form metadata
@@ -195,7 +229,8 @@ docs: record repaired Alpine acceptance
 
 - No implementation before explicit approval of this plan.
 - No direct Sub-Store host port.
-- No restored independent panel authentication or random paths.
+- No restored independent panel authentication.
+- No `/substore/` PWA compatibility rewrite or growing root-asset allowlist.
 - No global `unsafe-inline` CSP.
 - No automatic client-token rotation.
 - No `master` change, PR, merge, tag or release.

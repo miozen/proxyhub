@@ -11,9 +11,14 @@ export function createSubstoreRouter({ database, auth, service }) {
     response.json({
       health,
       syncing: service.isRunning(),
+      backend_path: service.backendPath(),
       ...service.settings(),
       jobs
     });
+  });
+
+  router.post('/backend-path/reset', auth.requireCsrf, (_request, response) => {
+    response.json({ backend_path: service.resetBackendPath() });
   });
 
   router.post('/sync', auth.requireCsrf, async (_request, response) => {

@@ -35,7 +35,6 @@ export function createApp({
     database, config, transport: substoreTransport,
     schedulerIntervalMs: substoreSchedulerIntervalMs, now: substoreNow
   });
-  mountSubstoreProxy(app, { auth, config });
   app.use(express.json({ limit: '1mb' }));
 
   app.use('/healthz', createHealthRouter({ database, config, probeSubstore }));
@@ -46,11 +45,14 @@ export function createApp({
   app.locals.stopBackgroundTasks = () => substore.stop();
   app.locals.runSubstoreScheduler = () => substore.runScheduled();
 
-  app.get('/vendor/vue.js', (_request, response) => {
+  app.get('/proxyhub/vendor/vue.js', (_request, response) => {
     response.sendFile(path.resolve('node_modules/vue/dist/vue.global.prod.js'));
   });
-  app.use(express.static(webRoot));
-  app.get('/', (_request, response) => response.sendFile(path.join(webRoot, 'index.html')));
+  app.use('/proxyhub', express.static(webRoot));
+  app.get('/proxyhub', (_request, response) => response.redirect('/proxyhub/'));
+  app.get('/proxyhub/', (_request, response) => response.sendFile(path.join(webRoot, 'index.html')));
+
+  mountSubstoreProxy(app, { auth, config, service: substore });
 
   app.use((_request, response) => {
     response.status(404).json({ error: 'not_found' });

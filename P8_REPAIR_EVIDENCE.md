@@ -227,3 +227,40 @@ Replacement behavior:
 
 Local enforced suite after the fix: PASS, 29/29. A new fixed SHA image is
 required before F6 browser acceptance can resume.
+
+## F6R - restored original routing model
+
+The allowlisted `/substore/` compatibility approach was retired after Alpine
+proved that the pinned upstream frontend is a root-path PWA.
+
+Implemented behavior:
+
+- ProxyHub dashboard and browser assets moved to `/proxyhub/`;
+- ProxyHub API and health routes remain `/api/*` and `/healthz`;
+- the official Sub-Store frontend owns `/` and its root static assets;
+- an owner-only root entry opens with
+  `/?api=<encoded origin + random backend path>`;
+- one `/[a-f0-9]{32}` setting proxies the backend with its prefix stripped;
+- the random path persists in SQLite and changes only after an explicit,
+  CSRF-protected owner reset;
+- the old random path returns 404 immediately after reset;
+- frontend static assets are served like the original panel so manifest and
+  dynamic chunk requests do not depend on cookies;
+- a no-cache cleanup service worker replaces the upstream worker to prevent
+  cached Sub-Store handlers from intercepting `/proxyhub/`;
+- no Sub-Store host port, second user database or Docker socket was added.
+
+Local verification:
+
+- enforced suite: PASS, 29/29;
+- root HTML, CSS, JavaScript, manifest-compatible static routing: PASS;
+- owner-only frontend entry and member denial: PASS;
+- random backend query, binary streaming, redirect and cookie rewriting: PASS;
+- reset persistence boundary and old-path 404: PASS;
+- ProxyHub `/proxyhub/` assets and root redirect: PASS;
+- syntax and `git diff --check`: PASS.
+
+The existing sync implementation uses the upstream documented `GET /api/sync`
+route. The exact Alpine failure still requires recording its returned HTTP
+status/error after the replacement image is deployed; frontend routing success
+must not be treated as sync success.

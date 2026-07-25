@@ -12,7 +12,7 @@ createApp({
     user: null, csrf: '', page: 'dashboard', menuOpen: false, busy: false, notice: null,
     authMode: 'login', authForm: { username: '', password: '' },
     subscriptions: [], runs: [], users: [], templates: [], settings: {},
-    substore: { health: {}, jobs: [], syncing: false, auto_sync_enabled: false, auto_sync_interval_hours: 12 },
+    substore: { health: {}, jobs: [], syncing: false, auto_sync_enabled: false, auto_sync_interval_hours: 12, backend_path: '' },
     generatedUrl: '', generationResult: null, subscriptionModal: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
     templateForm: { parent_id: null, source_type: 'local', source_url: '', content: '' },
@@ -27,8 +27,13 @@ createApp({
   }),
   computed: {
     isOwner() { return this.user?.role === 'owner'; },
+    substoreBackendUrl() {
+      return this.substore.backend_path ? `${location.origin}${this.substore.backend_path}` : '';
+    },
     substoreUiUrl() {
-      return `/substore/?api=${encodeURIComponent(`${location.origin}/substore-api`)}`;
+      return this.substoreBackendUrl
+        ? `/?api=${encodeURIComponent(this.substoreBackendUrl)}`
+        : '/';
     },
     visibleNav() { return this.nav.filter((item) => !item.owner || this.isOwner); },
     currentNav() { return this.nav.find((item) => item.id === this.page) || this.nav[0]; },
@@ -111,6 +116,12 @@ createApp({
       });
       await this.loadSubstore();
       this.flash('自动同步设置已保存');
+    },
+    async resetSubstorePath() {
+      if (!confirm('确认重置 Sub-Store 后端访问路径？旧地址会立即失效，使用旧地址的前端需要改用新地址。')) return;
+      const data = await this.api('/api/admin/substore/backend-path/reset', { method: 'POST' });
+      this.substore.backend_path = data.backend_path;
+      this.flash('Sub-Store 访问路径已重置');
     },
     editSubscription(sub = null) {
       this.subscriptionForm = sub ? JSON.parse(JSON.stringify(sub)) : { name: '', url: '', enabled: true, allowed_regions: ['HK', 'TW', 'SG', 'JP', 'US'] };

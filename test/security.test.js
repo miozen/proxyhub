@@ -32,7 +32,7 @@ test('P7 security headers and malformed authentication input remain safe', async
     fs.rmSync(directory, { recursive: true, force: true });
   });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${base}/`, { headers: { cookie: 'broken-cookie' } });
+  const response = await fetch(`${base}/proxyhub/`, { headers: { cookie: 'broken-cookie' } });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
@@ -41,7 +41,7 @@ test('P7 security headers and malformed authentication input remain safe', async
   assert.match(contentSecurityPolicy, /frame-ancestors 'self'/);
   assert.match(response.headers.get('permissions-policy'), /camera=\(\)/);
 
-  const favicon = await fetch(`${base}/favicon.svg`);
+  const favicon = await fetch(`${base}/proxyhub/favicon.svg`);
   assert.equal(favicon.status, 200);
   assert.match(favicon.headers.get('content-type') || '', /image\/svg\+xml/);
 

@@ -21,15 +21,17 @@ async function json(base, route, options = {}) {
   };
 }
 
-test('F2 dashboard opens the official Sub-Store UI in a separate tab', () => {
+test('F6R dashboard opens root Sub-Store UI with the resettable backend path', () => {
   const html = fs.readFileSync(new URL('../src/web/index.html', import.meta.url), 'utf8');
   const javascript = fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /<iframe/i);
   assert.match(html, /target="_blank"/);
   assert.match(html, /rel="noopener noreferrer"/);
   assert.match(html, /:href="substoreUiUrl"/);
-  assert.match(javascript, /\/substore\/\?api=/);
-  assert.match(javascript, /\/substore-api/);
+  assert.match(javascript, /`\/\?api=\$\{encodeURIComponent\(this\.substoreBackendUrl\)\}`/);
+  assert.match(javascript, /backend-path\/reset/);
+  assert.doesNotMatch(javascript, /\/substore\/\?api=/);
+  assert.doesNotMatch(javascript, /\/substore-api/);
 });
 
 test('owner manages Sub-Store health, sync and scheduling while members are denied', async (context) => {
@@ -78,21 +80,20 @@ test('owner manages Sub-Store health, sync and scheduling while members are deni
   result = await json(base, '/api/admin/substore/status', { headers: ownerHeaders });
   assert.equal(result.body.auto_sync_enabled, true);
   assert.equal(result.body.auto_sync_interval_hours, 6);
+  assert.match(result.body.backend_path, /^\/[a-f0-9]{32}$/);
   assert.equal(result.body.jobs[0].status, 'success');
   assert.equal(result.body.jobs[0].trigger_type, 'manual');
 
   const member = await json(base, '/api/auth/login', { method: 'POST', body: { username: 'member', password: 'member-password-123' } });
   result = await json(base, '/api/admin/substore/status', { headers: { cookie: member.cookie } });
   assert.equal(result.response.status, 403);
-  result = await json(base, '/substore/', { headers: { cookie: member.cookie } });
+  result = await json(base, '/?api=http%3A%2F%2Fexample.test%2Fbackend', { headers: { cookie: member.cookie } });
   assert.equal(result.response.status, 403);
   result = await json(base, '/api/admin/substore/status');
   assert.equal(result.response.status, 401);
-  result = await json(base, '/substore-api/api/data');
-  assert.equal(result.response.status, 401);
 });
 
-test('owner proxy adapts UI paths, redirects and cookies and streams binary API bodies', async (context) => {
+test('F6R root frontend and resettable backend path proxy without subpath rewrites', async (context) => {
   const binary = Buffer.from(Array.from({ length: 64 * 1024 }, (_value, index) => index % 251));
   const upstream = http.createServer((request, response) => {
     if (request.url === '/redirect') {
@@ -105,6 +106,10 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
       response.setHeader('content-type', 'application/octet-stream');
       response.write(binary.subarray(0, 1000));
       return response.end(binary.subarray(1000));
+    }
+    if (request.url === '/registerSW.js') {
+      response.setHeader('content-type', 'application/javascript');
+      return response.end('upstream-worker');
     }
     if (request.url === '/index.js') {
       response.setHeader('content-type', 'application/javascript');
@@ -160,15 +165,20 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
   await json(base, '/api/auth/register', { method: 'POST', body: { username: 'owner', password: 'owner-password-123' } });
   const owner = await json(base, '/api/auth/login', { method: 'POST', body: { username: 'owner', password: 'owner-password-123' } });
 
-  let response = await fetch(`${base}/substore/`, { headers: { cookie: owner.cookie } });
+  let status = await json(base, '/api/admin/substore/status', { headers: { cookie: owner.cookie } });
+  const backendPath = status.body.backend_path;
+  assert.match(backendPath, /^\/[a-f0-9]{32}$/);
+
+  let response = await fetch(`${base}/?api=${encodeURIComponent(base + backendPath)}`, {
+    headers: { cookie: owner.cookie }
+  });
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /href="\/css\/main\.css"/);
   assert.match(html, /href="\/manifests\.json"/);
-  assert.match(html, /rel="manifest"[^>]*crossorigin="use-credentials"/);
   assert.match(response.headers.get('content-security-policy') || '', /style-src 'self' 'unsafe-inline'/);
 
-  response = await fetch(`${base}/substore/index.js`, { headers: { cookie: owner.cookie } });
+  response = await fetch(`${base}/index.js`, { headers: { cookie: owner.cookie } });
   assert.equal(response.status, 200);
   const javascript = await response.text();
   assert.match(javascript, /fetch\(api\+"\/api\/utils\/env"\)/);
@@ -190,30 +200,34 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { name: 'Sub-Store' });
 
-  response = await fetch(`${base}/substore-api/api/data?name=test`, { headers: { cookie: owner.cookie } });
+  response = await fetch(`${base}${backendPath}/api/data?name=test`);
   assert.deepEqual(await response.json(), { path: '/api/data?name=test' });
 
-  response = await fetch(`${base}/substore/redirect`, {
-    headers: { cookie: owner.cookie }, redirect: 'manual'
-  });
+  response = await fetch(`${base}${backendPath}/redirect`, { redirect: 'manual' });
   assert.equal(response.status, 302);
-  assert.equal(response.headers.get('location'), '/substore/next?from=upstream');
-  assert.match(response.headers.get('set-cookie'), /Path=\/substore\//);
+  assert.equal(response.headers.get('location'), `${backendPath}/next?from=upstream`);
+  assert.match(response.headers.get('set-cookie'), new RegExp(`Path=${backendPath}/`));
   assert.doesNotMatch(response.headers.get('set-cookie'), /Domain=/i);
 
-  response = await fetch(`${base}/substore-api/binary`, { headers: { cookie: owner.cookie } });
+  response = await fetch(`${base}${backendPath}/binary`);
   assert.equal(response.headers.get('content-type'), 'application/octet-stream');
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), binary);
 
-  response = await fetch(`${base}/substore-api/api/data`, {
+  response = await fetch(`${base}${backendPath}/api/data`, {
     method: 'POST',
     headers: { cookie: owner.cookie },
     body: Buffer.alloc(5 * 1024 * 1024 + 1, 120)
   });
   assert.equal(response.status, 413);
 
+  response = await fetch(`${base}/registerSW.js`, { headers: { cookie: owner.cookie } });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /javascript/);
+  assert.match(await response.text(), /registration\.unregister/);
+
   response = await fetch(`${base}/css/main.css`);
-  assert.equal(response.status, 401);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /text\/css/);
 
   await json(base, '/api/auth/register', {
     method: 'POST', body: { username: 'member', password: 'member-password-123' }
@@ -224,7 +238,25 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
     method: 'POST', body: { username: 'member', password: 'member-password-123' }
   });
   response = await fetch(`${base}/css/main.css`, { headers: { cookie: member.cookie } });
-  assert.equal(response.status, 403);
+  assert.equal(response.status, 200);
+
+  const reset = await json(base, '/api/admin/substore/backend-path/reset', {
+    method: 'POST',
+    headers: { cookie: owner.cookie, 'x-csrf-token': owner.body.csrf_token }
+  });
+  assert.match(reset.body.backend_path, /^\/[a-f0-9]{32}$/);
+  assert.notEqual(reset.body.backend_path, backendPath);
+  response = await fetch(`${base}${backendPath}/api/data`);
+  assert.equal(response.status, 404);
+  response = await fetch(`${base}${reset.body.backend_path}/api/data`);
+  assert.equal(response.status, 200);
+
+  response = await fetch(`${base}/proxyhub/`);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /\/proxyhub\/app\.js/);
+  response = await fetch(`${base}/`, { redirect: 'manual' });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), '/proxyhub/');
 });
 
 test('P5 acceptance: scheduled success/failure history and global overlap lock', async (context) => {

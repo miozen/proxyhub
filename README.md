@@ -11,7 +11,9 @@ proxyhub install
 ```
 
 Only ProxyHub is published on the host. Sub-Store stays on the private Compose
-network and its native UI is available to the owner through `/substore/`.
+network. The ProxyHub dashboard is available at `/proxyhub/`; the official
+Sub-Store frontend uses `/` with an owner-managed, resettable random backend
+path.
 
 Lifecycle commands:
 

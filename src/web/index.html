@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>ProxyHub</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="/substore.css">
-  <link rel="stylesheet" href="/templates.css">
+  <link rel="icon" href="/proxyhub/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/proxyhub/style.css">
+  <link rel="stylesheet" href="/proxyhub/substore.css">
+  <link rel="stylesheet" href="/proxyhub/templates.css">
 </head>
 <body>
   <div id="app" v-cloak>
@@ -83,6 +83,15 @@
             <button class="primary" :disabled="substore.syncing" @click="syncSubstore">{{ substore.syncing?'同步中…':'立即同步' }}</button>
             <a class="button-link" :href="substoreUiUrl" target="_blank" rel="noopener noreferrer">新窗口打开 Sub-Store</a>
           </div>
+          <div class="panel">
+            <div class="panel-head"><h3>Sub-Store 后端地址</h3></div>
+            <p class="muted">该随机路径同时是访问凭据。只有手动重置后才会变化，重置后旧地址立即失效。</p>
+            <div class="token-box">{{ substoreBackendUrl }}</div>
+            <div class="actions">
+              <button :disabled="!substoreBackendUrl" @click="copy(substoreBackendUrl)">复制地址</button>
+              <button class="danger" @click="resetSubstorePath">重置访问路径</button>
+            </div>
+          </div>
           <div class="panel"><div class="panel-head"><h3>同步历史</h3></div><div class="table-wrap"><table><thead><tr><th>状态</th><th>触发方式</th><th>开始时间</th><th>结束时间</th><th>错误</th></tr></thead><tbody><tr v-for="job in substore.jobs" :key="job.id"><td><span class="badge" :class="job.status">{{ job.status }}</span></td><td>{{ job.trigger_type }}</td><td>{{ formatTime(job.started_at) }}</td><td>{{ job.finished_at?formatTime(job.finished_at):'—' }}</td><td>{{ job.error_text || '—' }}</td></tr><tr v-if="!substore.jobs.length"><td colspan="5" class="empty">暂无同步记录</td></tr></tbody></table></div></div>
         </section>
 
@@ -109,8 +118,8 @@
 
     <div v-if="subscriptionModal" class="modal-backdrop" @click.self="subscriptionModal=null"><form class="modal" @submit.prevent="saveSubscription"><div class="panel-head"><h3>{{ subscriptionForm.id?'编辑':'添加' }}订阅</h3><button type="button" @click="subscriptionModal=null">×</button></div><label for="subscription-name">名称</label><input id="subscription-name" v-model.trim="subscriptionForm.name" name="name" required maxlength="80"><label for="subscription-url">订阅 URL</label><input id="subscription-url" v-model.trim="subscriptionForm.url" name="url" type="url" autocomplete="url" required><label class="check" for="subscription-enabled"><input id="subscription-enabled" v-model="subscriptionForm.enabled" name="enabled" type="checkbox">启用订阅</label><fieldset><legend>允许地区</legend><label v-for="r in regions" :key="r" class="check" :for="'subscription-region-'+r"><input :id="'subscription-region-'+r" v-model="subscriptionForm.allowed_regions" name="allowed_regions" type="checkbox" :value="r">{{ r }}</label></fieldset><button class="primary wide">保存</button></form></div>
   </div>
-  <script src="/vendor/vue.js"></script>
-  <script src="/app.js"></script>
+  <script src="/proxyhub/vendor/vue.js"></script>
+  <script src="/proxyhub/app.js"></script>
 </body>
 </html>
 

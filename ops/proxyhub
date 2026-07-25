@@ -130,7 +130,7 @@ install_cmd() {
   dc pull
   dc up -d
   health || { dc logs proxyhub; die "health check failed"; }
-  echo "ProxyHub installed at http://127.0.0.1:$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)"
+  echo "ProxyHub installed at http://127.0.0.1:$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)/proxyhub/"
 }
 backup_cmd() {
   ensure_env; mkdir -p "$BACKUP_DIR"

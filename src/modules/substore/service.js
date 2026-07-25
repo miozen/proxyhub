@@ -1,5 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { redact } from '../../security/redact.js';
+
+const BACKEND_PATH_SETTING = 'substore_backend_path';
 
 async function request(url, timeoutMs = 10_000) {
   const controller = new AbortController();
@@ -16,6 +18,36 @@ export function createSubstoreService({
   database, config, transport = request, schedulerIntervalMs = 60_000, now = () => Date.now()
 }) {
   let running = false;
+  function setting(key, fallback) {
+    const row = database.prepare('SELECT value_json FROM app_settings WHERE key=?').get(key);
+    return row ? JSON.parse(row.value_json) : fallback;
+  }
+
+  function saveSetting(key, value) {
+    database.prepare(`INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?)
+      ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`)
+      .run(key, JSON.stringify(value), new Date(now()).toISOString());
+  }
+
+  function generateBackendPath() {
+    return `/${randomBytes(16).toString('hex')}`;
+  }
+
+  function backendPath() {
+    const existing = setting(BACKEND_PATH_SETTING, null);
+    if (typeof existing === 'string' && /^\/[a-f0-9]{32}$/.test(existing)) return existing;
+    const created = generateBackendPath();
+    saveSetting(BACKEND_PATH_SETTING, created);
+    return created;
+  }
+
+  function resetBackendPath() {
+    const replacement = generateBackendPath();
+    saveSetting(BACKEND_PATH_SETTING, replacement);
+    return replacement;
+  }
+
+  backendPath();
   database.prepare(`UPDATE jobs SET status='error',error_text='interrupted_by_restart',finished_at=?
     WHERE type='substore_sync' AND status='running'`).run(new Date(now()).toISOString());
 
@@ -54,11 +86,6 @@ export function createSubstoreService({
     } finally { running = false; }
   }
 
-  function setting(key, fallback) {
-    const row = database.prepare('SELECT value_json FROM app_settings WHERE key=?').get(key);
-    return row ? JSON.parse(row.value_json) : fallback;
-  }
-
   function settings() {
     return {
       auto_sync_enabled: setting('auto_sync_enabled', config.autoSyncEnabled),
@@ -79,6 +106,9 @@ export function createSubstoreService({
   const timer = setInterval(runScheduled, schedulerIntervalMs);
   timer.unref();
 
-  return { health, sync, settings, runScheduled, stop: () => clearInterval(timer), isRunning: () => running };
+  return {
+    health, sync, settings, backendPath, resetBackendPath, runScheduled,
+    stop: () => clearInterval(timer), isRunning: () => running
+  };
 }
 

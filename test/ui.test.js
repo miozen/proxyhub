@@ -19,6 +19,6 @@ test('F5 labels target controls and the local favicon is declared', () => {
   for (const [, attributes] of labels) {
     assert.match(attributes, /(?:^|\s)(?::?for)=["']/i, `label lacks for: ${attributes}`);
   }
-  assert.match(html, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/);
+  assert.match(html, /<link rel="icon" href="\/proxyhub\/favicon\.svg" type="image\/svg\+xml">/);
   assert.ok(fs.existsSync(new URL('../src/web/favicon.svg', import.meta.url)));
 });

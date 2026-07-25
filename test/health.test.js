@@ -33,12 +33,12 @@ test('reports healthy database and reachable Sub-Store', async (context) => {
   assert.equal(body.status, 'ok');
   assert.equal(body.checks.database, 'ok');
 
-  const page = await fetch(`http://127.0.0.1:${address.port}/`);
+  const page = await fetch(`http://127.0.0.1:${address.port}/proxyhub/`);
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type'), /text\/html/);
   assert.match(await page.text(), /ProxyHub/);
 
-  const vue = await fetch(`http://127.0.0.1:${address.port}/vendor/vue.js`);
+  const vue = await fetch(`http://127.0.0.1:${address.port}/proxyhub/vendor/vue.js`);
   assert.equal(vue.status, 200);
   assert.match(vue.headers.get('content-type'), /javascript/);
 });

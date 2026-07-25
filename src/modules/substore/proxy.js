@@ -1,7 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
 
-const MAX_REWRITE_BYTES = 2 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 5 * 1024 * 1024;
 const SUBSTORE_CSP = [
   "default-src 'self' data: blob:",
@@ -16,30 +15,21 @@ const SUBSTORE_CSP = [
   "form-action 'self'"
 ].join('; ');
 
-function rewriteSubstoreHtml(value) {
-  return value.replace(
-    /<link\b([^>]*\brel=(["'])manifest\2[^>]*)>/gi,
-    (match, attributes) => /\bcrossorigin=/i.test(attributes)
-      ? match
-      : `<link${attributes} crossorigin="use-credentials">`
-  );
-}
-
-function rewriteLocation(value, target, mountPath) {
+function rewriteLocation(value, target, publicPrefix) {
   if (!value) return value;
   try {
     const resolved = new URL(value, target);
     if (resolved.origin !== target.origin) return value;
-    return `${mountPath}${resolved.pathname}${resolved.search}${resolved.hash}`;
+    return `${publicPrefix}${resolved.pathname}${resolved.search}${resolved.hash}`;
   } catch {
     return value;
   }
 }
 
-function rewriteCookies(values, mountPath) {
+function rewriteCookies(values, publicPrefix) {
   if (!values) return values;
   const list = Array.isArray(values) ? values : [values];
-  const cookiePath = mountPath ? `${mountPath}/` : '/';
+  const cookiePath = publicPrefix ? `${publicPrefix}/` : '/';
   return list.map((value) => {
     const withoutDomain = String(value).replace(/;\s*Domain=[^;]+/gi, '');
     return /;\s*Path=/i.test(withoutDomain)
@@ -48,7 +38,7 @@ function rewriteCookies(values, mountPath) {
   });
 }
 
-function proxyTo(origin, mountPath, rewriteBody = false) {
+function proxyTo(origin, stripPrefix = '', publicPrefix = '', frontend = false) {
   const target = new URL(origin);
   const client = target.protocol === 'https:' ? https : http;
   return (request, response) => {
@@ -56,7 +46,10 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
     if (!Number.isFinite(declared) || declared < 0 || declared > MAX_REQUEST_BYTES) {
       return response.status(413).json({ error: 'substore_request_too_large' });
     }
-    const upstreamPath = request.originalUrl.slice(mountPath.length) || '/';
+    const sourcePath = request.originalUrl || request.url;
+    const upstreamPath = stripPrefix && sourcePath.startsWith(stripPrefix)
+      ? sourcePath.slice(stripPrefix.length) || '/'
+      : sourcePath;
     const headers = { ...request.headers, host: target.host, 'accept-encoding': 'identity' };
     delete headers['content-length'];
 
@@ -70,40 +63,18 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
     }, (upstreamResponse) => {
       const responseHeaders = { ...upstreamResponse.headers };
       delete responseHeaders['x-frame-options'];
-      delete responseHeaders['content-length'];
       if (responseHeaders.location) {
-        responseHeaders.location = rewriteLocation(responseHeaders.location, target, mountPath);
+        responseHeaders.location = rewriteLocation(responseHeaders.location, target, publicPrefix);
       }
       if (responseHeaders['set-cookie']) {
-        responseHeaders['set-cookie'] = rewriteCookies(responseHeaders['set-cookie'], mountPath);
+        responseHeaders['set-cookie'] = rewriteCookies(responseHeaders['set-cookie'], publicPrefix);
       }
-      if (rewriteBody) responseHeaders['content-security-policy'] = SUBSTORE_CSP;
-      const contentType = String(responseHeaders['content-type'] || '');
-      const shouldRewrite = rewriteBody && /text\/html/i.test(contentType);
-
+      if (frontend) responseHeaders['content-security-policy'] = SUBSTORE_CSP;
       response.status(upstreamResponse.statusCode || 502);
       for (const [name, value] of Object.entries(responseHeaders)) {
         if (value !== undefined) response.setHeader(name, value);
       }
-      if (!shouldRewrite) return upstreamResponse.pipe(response);
-
-      const chunks = [];
-      let size = 0;
-      upstreamResponse.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > MAX_REWRITE_BYTES) {
-          upstreamResponse.destroy();
-          if (!response.headersSent) response.status(502).json({ error: 'substore_response_too_large' });
-          else response.end();
-          return;
-        }
-        chunks.push(chunk);
-      });
-      upstreamResponse.on('end', () => {
-        if (size <= MAX_REWRITE_BYTES && !response.writableEnded) {
-          response.send(rewriteSubstoreHtml(Buffer.concat(chunks).toString('utf8')));
-        }
-      });
+      upstreamResponse.pipe(response);
     });
     upstream.setTimeout(60_000, () => upstream.destroy(new Error('substore_timeout')));
     upstream.on('error', (error) => {
@@ -124,16 +95,46 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
   };
 }
 
-export function mountSubstoreProxy(app, { auth, config }) {
-  const ownerOnly = [auth.requireUser, auth.requireOwner];
-  const uiGateway = proxyTo(config.substoreUiOrigin, '', true);
-  for (const path of [
-    '/css', '/js', '/assets', '/fonts', '/static',
-    '/favicon.ico', '/manifest.json', '/manifests.json'
-  ]) {
-    app.use(path, ...ownerOnly, uiGateway);
-  }
-  app.use('/substore-api', ...ownerOnly, proxyTo(config.substoreOrigin, '/substore-api'));
-  app.use('/substore', ...ownerOnly, proxyTo(config.substoreUiOrigin, '/substore', true));
+function noOpServiceWorker(_request, response) {
+  response
+    .type('application/javascript')
+    .set('Cache-Control', 'no-store')
+    .send(
+      "self.addEventListener('install',()=>self.skipWaiting());" +
+      "self.addEventListener('activate',event=>event.waitUntil(" +
+      "caches.keys().then(keys=>Promise.all(keys.map(key=>caches.delete(key))))" +
+      ".then(()=>self.registration.unregister()).then(()=>self.clients.claim())));"
+    );
 }
 
+export function mountSubstoreProxy(app, { auth, config, service }) {
+  const frontendProxy = proxyTo(config.substoreUiOrigin, '', '', true);
+
+  app.use((request, response, next) => {
+    const backendPath = service.backendPath();
+    if (request.path === backendPath || request.path.startsWith(`${backendPath}/`)) {
+      return proxyTo(config.substoreOrigin, backendPath, backendPath)(request, response);
+    }
+    if (/^\/[a-f0-9]{32}(?:\/|$)/.test(request.path)) {
+      return response.status(404).json({ error: 'not_found' });
+    }
+    return next();
+  });
+
+  app.get('/', (request, response, next) => {
+    if (typeof request.query.api === 'string' && request.query.api) return next();
+    return response.redirect('/proxyhub/');
+  });
+  app.get('/registerSW.js', noOpServiceWorker);
+
+  app.use((request, response, next) => {
+    if (
+      request.path === '/proxyhub' || request.path.startsWith('/proxyhub/') ||
+      request.path === '/healthz' || request.path.startsWith('/healthz/') ||
+      request.path === '/api' || request.path.startsWith('/api/')
+    ) return next();
+    if (request.path !== '/') return frontendProxy(request, response);
+    return auth.requireUser(request, response, () =>
+      auth.requireOwner(request, response, () => frontendProxy(request, response)));
+  });
+}
