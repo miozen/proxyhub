@@ -1,0 +1,20 @@
+{
+  "image": "xream/sub-store:2.36.21",
+  "source": "Alpine P8 browser Network and Console evidence",
+  "rootRequests": [
+    "/css/main.css",
+    "/css/nutui.css",
+    "/js/main-d98772a1.js",
+    "/js/vue-vendor-06b9111d.js",
+    "/js/editor-3f6229b5.js",
+    "/js/i18n-926a08c5.js",
+    "/js/icons-39ffc0fe.js",
+    "/js/nutui-3b5b2d56.js",
+    "/manifests.json"
+  ],
+  "observedFailure": {
+    "styles": "application/json response rejected by strict MIME checking",
+    "scripts": "404",
+    "manifest": "401"
+  }
+}

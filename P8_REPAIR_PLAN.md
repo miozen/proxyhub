@@ -1,6 +1,6 @@
 # P8 Repair Plan
 
-Status: proposed, implementation requires user approval  
+Status: F1 complete; F2-F6 require explicit phase start
 Branch: `dev` only  
 Baseline runtime: `dev-b4ca063`  
 Scope: defects and behavior gaps found during Alpine P8 acceptance
