@@ -24,9 +24,9 @@ Local evidence on 2026-07-25:
 
 | Gate | State | Evidence |
 |---|---|---|
-| P0.A1 fresh Compose start | PENDING | user deferred real-machine Docker evidence to P8 |
-| P0.A2 only port 3000 exposed | PENDING | static config passes; runtime evidence deferred to P8 |
-| P0.A3 Sub-Store host ports inaccessible | PENDING | static config passes; runtime evidence deferred to P8 |
+| P0.A1 fresh Compose start | PASS | Alpine 3.24.1 VM pulled both pinned images and started healthy |
+| P0.A2 only port 3000 exposed | PASS | VM `docker ps` shows only ProxyHub mapped at host port 3000 |
+| P0.A3 Sub-Store host ports inaccessible | PASS | VM `docker ps` shows no Sub-Store host port mapping |
 | P0.A4 restart preserves both stores | PENDING | user deferred persistence exercise to P8 |
 | P0.A5 workflows green | PASS | R1 commit `16273c0`, check `#8`, both workflows green |
 
@@ -308,7 +308,7 @@ the affected evidence with the replacement SHA and record both versions.
 
 | Task | State | Required evidence |
 |---|---|---|
-| P8.1 exact SHA deployment | PENDING | target OS, Docker/Compose versions, image digest and startup output |
+| P8.1 exact SHA deployment | PASS | Alpine 3.24.1 amd64; Docker 29.5.3; Compose 5.1.4; `dev-264107c`; digest `sha256:820016620af1c177fa4e95023f4440dd926149ed43d7dd6733c702455414cb1a`; healthy |
 | P8.2 first install/owner | PENDING | clean install, health and owner initialization |
 | P8.3 account workflow | PENDING | registration, approval, login, rename, password and disable/restore |
 | P8.4 sing-box workflow | PENDING | source test, generation, token URL and cached-failure behavior |
@@ -321,6 +321,18 @@ the affected evidence with the replacement SHA and record both versions.
 
 P8 state: `IN_PROGRESS`. P9 remains blocked until all P8 gates pass and the user
 explicitly accepts the dev deployment.
+
+P8.1 defects and retest:
+
+- `a5b2db0` exposed a blank UI because its CSP blocked the Vue runtime compiler;
+- the global `proxyhub` symlink resolved `/usr/local` instead of the repository;
+- Compose started a second init process around the image's Tini;
+- `264107c` fixes all three and adds symlink/CSP regression coverage;
+- the first update attempt lost its GHCR token connection and automatically
+  restored `dev-a5b2db0` with healthy data and services;
+- a later pull and update succeeded, the response CSP contains
+  `script-src 'self' 'unsafe-eval'`, the UI opens, and logs contain no Tini
+  warning.
 
 
 
