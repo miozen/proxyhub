@@ -6,7 +6,6 @@ services:
       context: .
     image: ${PROXYHUB_IMAGE:-ghcr.io/vonzhen/proxyhub:dev}
     restart: unless-stopped
-    init: true
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0

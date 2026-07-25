@@ -49,26 +49,27 @@ jobs:
       - name: Exercise backup and failed-update rollback
         run: |
           chmod +x ops/proxyhub
-          backup_path="$(ops/proxyhub backup ci-smoke)"
+          ln -s "$PWD/ops/proxyhub" /tmp/proxyhub
+          backup_path="$(/tmp/proxyhub backup ci-smoke)"
           test -s "$backup_path/proxyhub-data.tgz"
           test -s "$backup_path/substore-data.tgz"
-          if ops/proxyhub update --proxyhub-image invalid.invalid/proxyhub:missing; then
+          if /tmp/proxyhub update --proxyhub-image invalid.invalid/proxyhub:missing; then
             echo "Injected update failure unexpectedly succeeded"
             exit 1
           fi
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
-          if ops/proxyhub update --substore-image invalid.invalid/sub-store:missing --confirm-substore; then
+          if /tmp/proxyhub update --substore-image invalid.invalid/sub-store:missing --confirm-substore; then
             echo "Injected Sub-Store update failure unexpectedly succeeded"
             exit 1
           fi
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
-          ops/proxyhub uninstall
+          /tmp/proxyhub uninstall
           docker volume inspect proxyhub-data proxyhub-substore-data
-          if PROXYHUB_PURGE_CONFIRM=NO ops/proxyhub uninstall --purge; then
+          if PROXYHUB_PURGE_CONFIRM=NO /tmp/proxyhub uninstall --purge; then
             echo "Purge without exact confirmation unexpectedly succeeded"
             exit 1
           fi
-          ops/proxyhub start
+          /tmp/proxyhub start
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
       - name: Scan ProxyHub image
         uses: anchore/scan-action@v7

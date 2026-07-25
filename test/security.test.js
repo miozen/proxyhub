@@ -36,7 +36,9 @@ test('P7 security headers and malformed authentication input remain safe', async
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
-  assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'self'/);
+  const contentSecurityPolicy = response.headers.get('content-security-policy');
+  assert.match(contentSecurityPolicy, /script-src 'self' 'unsafe-eval'/);
+  assert.match(contentSecurityPolicy, /frame-ancestors 'self'/);
   assert.match(response.headers.get('permissions-policy'), /camera=\(\)/);
 
   const denied = await fetch(`${base}/api/me`, { headers: { cookie: 'proxyhub_session=%' } });
