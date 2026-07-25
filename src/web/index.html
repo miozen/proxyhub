@@ -107,6 +107,25 @@
         <section v-if="page==='system' && isOwner" class="content split">
           <div class="panel"><div class="panel-head"><h3>系统设置</h3></div><div class="setting-row"><div><strong>开放注册</strong><p>允许新用户提交注册申请</p></div><button class="switch" :class="{on:settings.registration_enabled}" @click="toggleRegistration"><i></i></button></div><div class="setting-row"><div><strong>生成失败缓存回退</strong><p>失败时返回该用户最近一次成功配置</p></div><button class="switch" :class="{on:settings.generation_cache_fallback_enabled}" @click="toggleGenerationCache"><i></i></button></div></div>
           <div class="panel"><div class="panel-head"><h3>Sub-Store</h3><span class="badge active">已接入</span></div><p>管理页、健康检查与同步任务已统一到 owner 控制台。</p><button @click="page='substore'">打开 Sub-Store</button></div>
+          <form class="panel full" @submit.prevent="saveSingboxSettings">
+            <div class="panel-head"><div><p class="eyebrow">SING-BOX</p><h3>区域匹配关键字字典</h3></div></div>
+            <div class="form-grid">
+              <div v-for="region in regions" :key="region">
+                <label :for="'region-keywords-'+region">{{ region }} 区域</label>
+                <input :id="'region-keywords-'+region" v-model="regionKeywordText[region]" name="region_keywords" required>
+              </div>
+            </div>
+            <label for="singbox-banned-keywords">无效节点屏蔽正则</label>
+            <textarea id="singbox-banned-keywords" v-model="singboxSettings.banned_keywords" name="banned_keywords" rows="3"></textarea>
+            <div class="panel-head"><h3>调度清洗与测速阈值</h3></div>
+            <label for="urltest-url">测速 URL</label>
+            <input id="urltest-url" v-model.trim="singboxSettings.urltest_params.url" name="urltest_url" type="url" autocomplete="url" required>
+            <div class="form-grid">
+              <div><label for="urltest-interval">测速间隔</label><input id="urltest-interval" v-model.trim="singboxSettings.urltest_params.interval" name="urltest_interval" placeholder="3m" required></div>
+              <div><label for="urltest-tolerance">容差（ms）</label><input id="urltest-tolerance" v-model.number="singboxSettings.urltest_params.tolerance" name="urltest_tolerance" type="number" min="0" max="60000" required></div>
+            </div>
+            <button class="primary">保存生成参数</button>
+          </form>
         </section>
 
         <section v-if="page==='account'" class="content split">

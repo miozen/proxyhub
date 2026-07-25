@@ -1,6 +1,6 @@
 # P8 Repair Plan
 
-Status: F6R implemented locally and awaiting dev CI plus Alpine acceptance
+Status: F6R follow-up implemented locally; replacement dev CI and Alpine acceptance pending
 Branch: `dev` only  
 Baseline runtime: `dev-b4ca063`  
 Scope: defects and behavior gaps found during Alpine P8 acceptance
@@ -212,6 +212,26 @@ Exit: browser evidence is recorded for ProxyHub and the official Sub-Store UI.
 - F6R.10 repeat component update/rollback, persistence and restore gates.
 
 Exit: resume the normal P8 plan only after all repair gates pass.
+
+### F6R.1 - Restore omitted singbox-center generation settings
+
+- Update the Compose real-image smoke test to use the F6R root frontend and
+  random backend path instead of removed `/substore/` routes.
+- Restore owner editing for the five-region keyword dictionary.
+- Restore the invalid-node filtering regular expression.
+- Restore UrlTest URL, interval and tolerance settings.
+- Persist all three settings in SQLite and apply them on every subscription
+  test and configuration generation.
+- Validate region keys/keywords, regular-expression syntax, HTTP(S) URL,
+  sing-box duration syntax and tolerance bounds.
+
+Exit:
+
+- the real-image smoke reaches `/<random>/api/utils/env` as JSON;
+- changed keywords alter regional grouping;
+- changed filtering rules alter retained nodes;
+- changed UrlTest values appear in generated groups;
+- members cannot read or change global generation settings.
 
 ## 3. Commit boundaries
 

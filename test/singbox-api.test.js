@@ -23,7 +23,10 @@ test('creates template and subscription then generates config by client token', 
     config: loadConfig({ NODE_ENV: 'development' }),
     database,
     probeSubstore: async () => ({ reachable: true, status: 200 }),
-    singboxFetch: async () => ({ outbounds: [{ type: 'vless', tag: 'HK-Node' }] })
+    singboxFetch: async () => ({ outbounds: [
+      { type: 'vless', tag: 'CustomRegion-Node' },
+      { type: 'vless', tag: 'DROP-Node' }
+    ] })
   });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
@@ -46,11 +49,43 @@ test('creates template and subscription then generates config by client token', 
   } });
   assert.equal(result.response.status, 201);
 
+  result = await call(base, '/api/admin/singbox-settings', {
+    method: 'PUT',
+    headers,
+    body: {
+      region_keywords: { HK: [], TW: ['TW'], SG: ['SG'], JP: ['JP'], US: ['US'] },
+      banned_keywords: '[',
+      urltest_params: { url: 'file:///tmp/test', interval: 'never', tolerance: -1 }
+    }
+  });
+  assert.equal(result.response.status, 400);
+
+  result = await call(base, '/api/admin/singbox-settings', {
+    method: 'PUT',
+    headers,
+    body: {
+      region_keywords: {
+        HK: ['CustomRegion'], TW: ['TW'], SG: ['SG'], JP: ['JP'], US: ['US']
+      },
+      banned_keywords: 'DROP',
+      urltest_params: { url: 'https://example.com/generate_204', interval: '5m', tolerance: 275 }
+    }
+  });
+  assert.equal(result.response.status, 200);
+
   const token = await call(base, '/api/me/token/reset', { method: 'POST', headers });
   result = await call(base, `/api/generate?token=${encodeURIComponent(token.body.token)}`);
   assert.equal(result.response.status, 200);
-  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === '🇭🇰 HK-Airport'));
-  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'HK-Node'));
+  const group = result.body.outbounds.find((outbound) => outbound.tag === '🇭🇰 HK-Airport');
+  assert.deepEqual(group.outbounds, ['CustomRegion-Node']);
+  assert.equal(group.url, 'https://example.com/generate_204');
+  assert.equal(group.interval, '5m');
+  assert.equal(group.tolerance, 275);
+  assert.ok(!result.body.outbounds.some((outbound) => outbound.tag === 'DROP-Node'));
+
+  result = await call(base, '/api/admin/singbox-settings', { headers });
+  assert.equal(result.body.settings.region_keywords.HK[0], 'CustomRegion');
+  assert.equal(result.body.settings.banned_keywords, 'DROP');
 });
 
 test('P2 acceptance: isolates failed sources and users and obeys cache fallback', async (context) => {

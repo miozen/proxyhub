@@ -264,3 +264,26 @@ The existing sync implementation uses the upstream documented `GET /api/sync`
 route. The exact Alpine failure still requires recording its returned HTTP
 status/error after the replacement image is deployed; frontend routing success
 must not be treated as sync success.
+
+## F6R.1 - Compose smoke and generation settings
+
+The first F6R Docker workflow built and started both containers successfully.
+Its failure was a stale smoke assertion: the script requested the removed
+`/substore-api/api/utils/env` route and received root frontend HTML, then
+incorrectly asserted a JSON content type.
+
+Replacement smoke behavior:
+
+- authenticate the owner;
+- read the active random backend path from the owner status endpoint;
+- open `/?api=<encoded random backend URL>`;
+- request `/<random>/api/utils/env` and require JSON;
+- verify the same root frontend entry is denied without an owner session.
+
+The audit against `singbox-center` also found three global settings that had
+been reduced to hard-coded defaults. ProxyHub now restores owner-managed,
+SQLite-persisted region keywords, invalid-node filtering regex, and UrlTest
+URL/interval/tolerance. Subscription tests and normal generation read the
+current values. API validation and member-denial coverage were added.
+
+Local enforced suite after F6R.1: PASS, 29/29.

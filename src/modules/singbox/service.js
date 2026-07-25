@@ -11,11 +11,63 @@ export const DEFAULTS = {
     JP: ['JP', '\u65e5\u672c'],
     US: ['US', '\u7f8e\u56fd']
   },
-  banned: '\u8fc7\u671f|\u5269\u4f59|\u7f51\u5740|\u5b98\u7f51|\u6d41\u91cf|\u5230\u671f|\u91cd\u7f6e|\u5957\u9910|\u7fa4\u7ec4|\u901a\u77e5|\u8d2d\u4e70|\u7ef4\u62a4',
+  banned: '\u8fc7\u671f|\u5269\u4f59|\u7f51\u5740|\u5b98\u7f51|\u6d41\u91cf|\u5230\u671f|\u91cd\u7f6e|\u6709\u6548|\u5957\u9910|\u7fa4\u7ec4|\u901a\u77e5|\u5730\u5740|\u8d2d\u4e70|\u7ef4\u62a4',
   urltest: { url: 'https://www.gstatic.com/generate_204', interval: '3m', tolerance: 150 }
 };
 
 export function createSingboxService({ database, config, fetchJson = fetchJsonSafe }) {
+  function setting(key, fallback) {
+    const row = database.prepare('SELECT value_json FROM app_settings WHERE key=?').get(key);
+    return row ? JSON.parse(row.value_json) : structuredClone(fallback);
+  }
+
+  function settings() {
+    return {
+      region_keywords: setting('singbox_region_keywords', DEFAULTS.regions),
+      banned_keywords: setting('singbox_banned_keywords', DEFAULTS.banned),
+      urltest_params: setting('singbox_urltest_params', DEFAULTS.urltest)
+    };
+  }
+
+  function updateSettings(value) {
+    const regions = value?.region_keywords;
+    const banned = String(value?.banned_keywords || '').trim() || DEFAULTS.banned;
+    const urltest = value?.urltest_params;
+    const validRegions = regions && Object.keys(DEFAULTS.regions).every((region) =>
+      Array.isArray(regions[region]) && regions[region].length > 0 &&
+      regions[region].length <= 30 && regions[region].every((keyword) =>
+        typeof keyword === 'string' && keyword.trim().length > 0 && keyword.trim().length <= 40));
+    if (!validRegions || Object.keys(regions).some((region) => !(region in DEFAULTS.regions))) {
+      throw new Error('invalid_region_keywords');
+    }
+    if (typeof banned !== 'string' || banned.length > 2000) throw new Error('invalid_banned_keywords');
+    try { new RegExp(banned, 'i'); } catch { throw new Error('invalid_banned_keywords'); }
+    let parsedUrl;
+    try { parsedUrl = new URL(urltest?.url); } catch { throw new Error('invalid_urltest_url'); }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('invalid_urltest_url');
+    if (!/^[1-9]\d*(?:ms|s|m|h)$/.test(urltest?.interval || '')) throw new Error('invalid_urltest_interval');
+    const tolerance = Number(urltest?.tolerance);
+    if (!Number.isInteger(tolerance) || tolerance < 0 || tolerance > 60_000) {
+      throw new Error('invalid_urltest_tolerance');
+    }
+    const normalized = {
+      region_keywords: Object.fromEntries(Object.keys(DEFAULTS.regions).map((region) => [
+        region, [...new Set(regions[region].map((keyword) => keyword.trim()))]
+      ])),
+      banned_keywords: banned,
+      urltest_params: { url: parsedUrl.toString(), interval: urltest.interval, tolerance }
+    };
+    const save = database.prepare(`INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?)
+      ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`);
+    const now = new Date().toISOString();
+    database.transaction(() => {
+      save.run('singbox_region_keywords', JSON.stringify(normalized.region_keywords), now);
+      save.run('singbox_banned_keywords', JSON.stringify(normalized.banned_keywords), now);
+      save.run('singbox_urltest_params', JSON.stringify(normalized.urltest_params), now);
+    })();
+    return normalized;
+  }
+
   function template(id) {
     return database.prepare('SELECT * FROM template_versions WHERE id=?').get(id);
   }
@@ -77,6 +129,7 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
   }
 
   async function generate(user) {
+    const generationSettings = settings();
     const templateRow = database.prepare('SELECT * FROM template_versions WHERE active=1').get();
     if (!templateRow) throw new Error('active_template_required');
     const template = JSON.parse(templateRow.content_json);
@@ -87,7 +140,7 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     await Promise.all(rows.map(async (row) => {
       try {
         const payload = await fetchJson(decryptUrl(row.url_encrypted, config.dataEncryptionKey));
-        const nodes = normalizeNodes(payload, DEFAULTS.banned);
+        const nodes = normalizeNodes(payload, generationSettings.banned_keywords);
         sources.push({ name: row.name, nodes, allowed_regions: JSON.parse(row.allowed_regions_json) });
         reports.push({ id: row.id, status: 'success', nodes: nodes.length });
       } catch (error) {
@@ -96,9 +149,13 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     }));
     const seen = new Set();
     const nodes = sources.flatMap((source) => source.nodes).filter((node) => !seen.has(node.tag) && seen.add(node.tag));
-    const { groups, byRegion } = buildRegionalGroups(sources, DEFAULTS.regions, DEFAULTS.urltest);
+    const { groups, byRegion } = buildRegionalGroups(
+      sources, generationSettings.region_keywords, generationSettings.urltest_params
+    );
     const directTag = template.outbounds.find((outbound) => outbound.type === 'direct')?.tag || '🎯 全球直连';
-    const output = injectTemplate(template, nodes, groups, byRegion, directTag, DEFAULTS.regions);
+    const output = injectTemplate(
+      template, nodes, groups, byRegion, directTag, generationSettings.region_keywords
+    );
     return { output, summary: { subscriptions: rows.length, nodes: nodes.length, groups: groups.length, reports } };
   }
 
@@ -116,7 +173,9 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     template,
     createTemplateVersion,
     refreshTemplate,
-    activateTemplate
+    activateTemplate,
+    settings,
+    updateSettings
   };
 }
 

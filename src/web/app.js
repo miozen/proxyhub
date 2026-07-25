@@ -12,6 +12,8 @@ createApp({
     user: null, csrf: '', page: 'dashboard', menuOpen: false, busy: false, notice: null,
     authMode: 'login', authForm: { username: '', password: '' },
     subscriptions: [], runs: [], users: [], templates: [], settings: {},
+    singboxSettings: { region_keywords: {}, banned_keywords: '', urltest_params: { url: '', interval: '', tolerance: 150 } },
+    regionKeywordText: {},
     substore: { health: {}, jobs: [], syncing: false, auto_sync_enabled: false, auto_sync_interval_hours: 12, backend_path: '' },
     generatedUrl: '', generationResult: null, subscriptionModal: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
@@ -97,7 +99,18 @@ createApp({
     async loadRuns() { this.runs = (await this.api('/api/generation/status')).runs; },
     async loadUsers() { this.users = (await this.api('/api/admin/users')).users; },
     async loadTemplates() { this.templates = (await this.api('/api/admin/templates')).templates; },
-    async loadSettings() { this.settings = (await this.api('/api/admin/settings')).settings; },
+    async loadSettings() {
+      const [system, singbox] = await Promise.all([
+        this.api('/api/admin/settings'),
+        this.api('/api/admin/singbox-settings')
+      ]);
+      this.settings = system.settings;
+      this.singboxSettings = singbox.settings;
+      this.regionKeywordText = Object.fromEntries(
+        Object.entries(singbox.settings.region_keywords).map(([region, keywords]) => [region, keywords.join(', ')])
+      );
+      this.regions = Object.keys(singbox.settings.region_keywords);
+    },
     async loadSubstore() { this.substore = await this.api('/api/admin/substore/status'); },
     async syncSubstore() {
       try {
@@ -189,6 +202,22 @@ createApp({
     async toggleGeneration(item) { await this.api(`/api/admin/users/${item.id}/generation`, { method: 'PUT', body: { enabled: !item.generation_enabled } }); await this.loadUsers(); },
     async toggleRegistration() { await this.api('/api/admin/settings/registration', { method: 'PUT', body: { enabled: !this.settings.registration_enabled } }); await this.loadSettings(); },
     async toggleGenerationCache() { await this.api('/api/admin/settings/generation-cache', { method: 'PUT', body: { enabled: !this.settings.generation_cache_fallback_enabled } }); await this.loadSettings(); },
+    async saveSingboxSettings() {
+      const regionKeywords = Object.fromEntries(this.regions.map((region) => [
+        region,
+        String(this.regionKeywordText[region] || '').split(',').map((item) => item.trim()).filter(Boolean)
+      ]));
+      const data = await this.api('/api/admin/singbox-settings', {
+        method: 'PUT',
+        body: {
+          region_keywords: regionKeywords,
+          banned_keywords: this.singboxSettings.banned_keywords,
+          urltest_params: this.singboxSettings.urltest_params
+        }
+      });
+      this.singboxSettings = data.settings;
+      this.flash('区域匹配与测速参数已保存');
+    },
     async changeUsername() { await this.api('/api/me/username', { method: 'PUT', body: { username: this.account.username } }); this.user.username = this.account.username; this.flash('用户名已更新'); },
     async changePassword() { try { await this.api('/api/me/password', { method: 'PUT', body: { current_password: this.account.currentPassword, new_password: this.account.newPassword } }); this.user = null; this.csrf = ''; this.flash('密码已修改，请重新登录'); } catch (error) { this.flash(error.message, 'error'); } },
     async copy(value) { await navigator.clipboard.writeText(value); this.flash('已复制'); },

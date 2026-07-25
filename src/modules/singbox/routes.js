@@ -64,7 +64,7 @@ export function createSingboxRouter({ database, config, auth, service }) {
     try {
       const nodes = normalizeNodes(
         await fetchJsonSafe(decryptUrl(row.url_encrypted, config.dataEncryptionKey)),
-        '\u8fc7\u671f|\u5269\u4f59|\u7f51\u5740'
+        service.settings().banned_keywords
       );
       response.json({ success: true, nodes: nodes.length });
     } catch (error) { response.status(502).json({ success: false, error: error.message }); }
@@ -75,6 +75,14 @@ export function createSingboxRouter({ database, config, auth, service }) {
   });
   router.get('/generation/status', (request, response) => {
     response.json({ runs: database.prepare('SELECT id,status,summary_json,error_text,started_at,finished_at FROM generation_runs WHERE user_id=? ORDER BY started_at DESC LIMIT 20').all(request.auth.user.id) });
+  });
+
+  router.get('/admin/singbox-settings', auth.requireOwner, (_request, response) => {
+    response.json({ settings: service.settings() });
+  });
+  router.put('/admin/singbox-settings', auth.requireOwner, auth.requireCsrf, (request, response) => {
+    try { response.json({ success: true, settings: service.updateSettings(request.body) }); }
+    catch (error) { response.status(400).json({ error: error.message }); }
   });
 
   router.get('/admin/templates', auth.requireOwner, (_request, response) => response.json({

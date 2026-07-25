@@ -70,7 +70,8 @@ test('P1 acceptance: identity, switches, revocation and authorization', async (c
   result = await json(base, '/api/admin/users', { headers: memberHeaders });
   assert.equal(result.response.status, 403);
   for (const ownerRoute of [
-    '/api/admin/templates', '/api/admin/settings', '/api/admin/substore/status'
+    '/api/admin/templates', '/api/admin/settings', '/api/admin/singbox-settings',
+    '/api/admin/substore/status'
   ]) {
     result = await json(base, ownerRoute, { headers: memberHeaders });
     assert.equal(result.response.status, 403, ownerRoute);
