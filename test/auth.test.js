@@ -57,6 +57,10 @@ test('owner registration, member approval and account security flow', async (con
   };
   const member = database.prepare("SELECT id FROM users WHERE username='member'").get();
 
+  result = await json(base, '/api/admin/settings', { headers: ownerHeaders });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.settings.registration_enabled, true);
+
   result = await json(base, `/api/admin/users/${member.id}/approve`, { method: 'POST', headers: ownerHeaders });
   assert.equal(result.response.status, 200);
 
@@ -87,6 +91,7 @@ test('owner registration, member approval and account security flow', async (con
   result = await json(base, '/api/me', { headers: memberHeaders });
   assert.equal(result.response.status, 401);
 });
+
 
 
 

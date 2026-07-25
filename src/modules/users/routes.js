@@ -87,8 +87,14 @@ export function createUserRouter({ database, auth }) {
     response.json({ success: true, enabled });
   });
 
+  router.get('/admin/settings', auth.requireOwner, (_request, response) => {
+    const rows = database.prepare('SELECT key,value_json FROM app_settings ORDER BY key').all();
+    response.json({ settings: Object.fromEntries(rows.map((row) => [row.key, JSON.parse(row.value_json)])) });
+  });
+
   return router;
 }
+
 
 
 
