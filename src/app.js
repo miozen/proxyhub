@@ -7,21 +7,28 @@ import { createAuthRouter } from './modules/auth/routes.js';
 import { createUserRouter } from './modules/users/routes.js';
 import { createSingboxService } from './modules/singbox/service.js';
 import { createSingboxRouter } from './modules/singbox/routes.js';
+import { createSubstoreService } from './modules/substore/service.js';
+import { createSubstoreRouter } from './modules/substore/routes.js';
+import { mountSubstoreProxy } from './modules/substore/proxy.js';
 
-export function createApp({ config, database, probeSubstore, singboxFetch }) {
+export function createApp({ config, database, probeSubstore, singboxFetch, substoreTransport }) {
   const app = express();
   const webRoot = fileURLToPath(new URL('./web/', import.meta.url));
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
+  const auth = createAuth({ database, config });
+  const singbox = createSingboxService({ database, config, fetchJson: singboxFetch });
+  const substore = createSubstoreService({ database, config, transport: substoreTransport });
+  mountSubstoreProxy(app, { auth, config });
   app.use(express.json({ limit: '1mb' }));
 
   app.use('/healthz', createHealthRouter({ database, config, probeSubstore }));
-  const auth = createAuth({ database, config });
-  const singbox = createSingboxService({ database, config, fetchJson: singboxFetch });
   app.use('/api/auth', createAuthRouter({ database, config, auth }));
   app.use('/api', createSingboxRouter({ database, config, auth, service: singbox }));
   app.use('/api', createUserRouter({ database, config, auth }));
+  app.use('/api/admin/substore', createSubstoreRouter({ database, auth, service: substore }));
+  app.locals.stopBackgroundTasks = () => substore.stop();
 
   app.get('/vendor/vue.js', (_request, response) => {
     response.sendFile(path.resolve('node_modules/vue/dist/vue.global.prod.js'));
@@ -35,6 +42,7 @@ export function createApp({ config, database, probeSubstore, singboxFetch }) {
 
   return app;
 }
+
 
 
 

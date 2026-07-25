@@ -12,13 +12,15 @@ createApp({
     user: null, csrf: '', page: 'dashboard', menuOpen: false, busy: false, notice: null,
     authMode: 'login', authForm: { username: '', password: '' },
     subscriptions: [], runs: [], users: [], templates: [], settings: {},
+    substore: { health: {}, jobs: [], syncing: false, auto_sync_enabled: false, auto_sync_interval_hours: 12 },
     generatedUrl: '', generationResult: null, subscriptionModal: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
     templateForm: { source_type: 'local', source_url: '', content: '' },
     account: { username: '', currentPassword: '', newPassword: '' },
     nav: [
       { id: 'dashboard', label: '总览', icon: '◫' }, { id: 'subscriptions', label: '我的订阅', icon: '⌁' },
-      { id: 'generation', label: '配置生成', icon: '⚡' }, { id: 'templates', label: '模板管理', icon: '◇', owner: true },
+      { id: 'generation', label: '配置生成', icon: '⚡' }, { id: 'substore', label: 'Sub-Store', icon: '↻', owner: true },
+      { id: 'templates', label: '模板管理', icon: '◇', owner: true },
       { id: 'users', label: '用户管理', icon: '♙', owner: true }, { id: 'system', label: '系统设置', icon: '⚙', owner: true },
       { id: 'account', label: '账户设置', icon: '◎' }
     ]
@@ -65,6 +67,7 @@ createApp({
         if (this.page === 'generation' || this.page === 'dashboard') await this.loadRuns();
         if (this.page === 'users' && this.isOwner) await this.loadUsers();
         if (this.page === 'templates' && this.isOwner) await this.loadTemplates();
+        if (this.page === 'substore' && this.isOwner) await this.loadSubstore();
         if (this.page === 'system' && this.isOwner) await this.loadSettings();
       } catch (error) { this.flash(error.message, 'error'); }
     },
@@ -73,6 +76,25 @@ createApp({
     async loadUsers() { this.users = (await this.api('/api/admin/users')).users; },
     async loadTemplates() { this.templates = (await this.api('/api/admin/templates')).templates; },
     async loadSettings() { this.settings = (await this.api('/api/admin/settings')).settings; },
+    async loadSubstore() { this.substore = await this.api('/api/admin/substore/status'); },
+    async syncSubstore() {
+      try {
+        await this.api('/api/admin/substore/sync', { method: 'POST' });
+        await this.loadSubstore();
+        this.flash('Sub-Store 同步完成');
+      } catch (error) {
+        await this.loadSubstore().catch(() => {});
+        this.flash(`同步失败：${error.message}`, 'error');
+      }
+    },
+    async saveSubstoreSettings() {
+      await this.api('/api/admin/substore/settings', {
+        method: 'PUT',
+        body: { enabled: this.substore.auto_sync_enabled, interval_hours: this.substore.auto_sync_interval_hours }
+      });
+      await this.loadSubstore();
+      this.flash('自动同步设置已保存');
+    },
     editSubscription(sub = null) {
       this.subscriptionForm = sub ? JSON.parse(JSON.stringify(sub)) : { name: '', url: '', enabled: true, allowed_regions: ['HK', 'TW', 'SG', 'JP', 'US'] };
       this.subscriptionModal = true;
@@ -107,4 +129,5 @@ createApp({
     formatTime(value) { return new Date(value).toLocaleString(); }
   }
 }).mount('#app');
+
 

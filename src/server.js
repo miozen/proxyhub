@@ -13,6 +13,7 @@ const server = app.listen(config.port, config.host, () => {
 function shutdown(signal) {
   console.log(`[proxyhub] received ${signal}, shutting down`);
   server.close(() => {
+    app.locals.stopBackgroundTasks?.();
     database.close();
     process.exit(0);
   });
@@ -20,6 +21,7 @@ function shutdown(signal) {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
 
 
 

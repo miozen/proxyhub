@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <title>ProxyHub</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/substore.css">
 </head>
 <body>
   <div id="app" v-cloak>
@@ -14,7 +15,7 @@
         <div class="brand-mark">PH</div>
         <p class="eyebrow">SING-BOX × SUB-STORE</p>
         <h1>一处管理你的<br><span>代理配置中心</span></h1>
-        <p>统一账户、订阅、模板与配置生成。Sub-Store 将在下一阶段接入同一控制台。</p>
+        <p>统一账户、订阅、模板、配置生成与 Sub-Store 管理。</p>
       </section>
       <form class="auth-card" @submit.prevent="authSubmit">
         <div class="auth-tabs">
@@ -66,6 +67,24 @@
           <div class="panel full"><div class="panel-head"><h3>生成历史</h3></div><run-table :runs="runs"></run-table></div>
         </section>
 
+        <section v-if="page==='substore' && isOwner" class="content">
+          <div class="stat-grid">
+            <article><span>后端</span><strong>{{ substore.health.backend?'在线':'离线' }}</strong><small>Sub-Store API</small></article>
+            <article><span>前端</span><strong>{{ substore.health.frontend?'在线':'离线' }}</strong><small>Sub-Store 管理页</small></article>
+            <article><span>同步</span><strong>{{ substore.syncing?'进行中':(substore.jobs[0]?.status || '—') }}</strong><small>{{ substore.jobs[0]?.finished_at ? formatTime(substore.jobs[0].finished_at) : '暂无记录' }}</small></article>
+            <article><span>自动同步</span><strong>{{ substore.auto_sync_enabled?'启用':'停用' }}</strong><small>每 {{ substore.auto_sync_interval_hours }} 小时</small></article>
+          </div>
+          <div class="panel substore-controls">
+            <label class="check"><input v-model="substore.auto_sync_enabled" type="checkbox">启用自动同步</label>
+            <label>同步间隔（小时）<input v-model.number="substore.auto_sync_interval_hours" type="number" min="1" max="8760"></label>
+            <button @click="saveSubstoreSettings">保存设置</button>
+            <button class="primary" :disabled="substore.syncing" @click="syncSubstore">{{ substore.syncing?'同步中…':'立即同步' }}</button>
+            <a class="button-link" href="/substore/" target="substore-console">刷新管理页</a>
+          </div>
+          <div class="panel iframe-panel"><iframe name="substore-console" src="/substore/" title="Sub-Store 管理页"></iframe></div>
+          <div class="panel"><div class="panel-head"><h3>同步历史</h3></div><div class="table-wrap"><table><thead><tr><th>状态</th><th>触发方式</th><th>开始时间</th><th>结束时间</th><th>错误</th></tr></thead><tbody><tr v-for="job in substore.jobs" :key="job.id"><td><span class="badge" :class="job.status">{{ job.status }}</span></td><td>{{ job.trigger_type }}</td><td>{{ formatTime(job.started_at) }}</td><td>{{ job.finished_at?formatTime(job.finished_at):'—' }}</td><td>{{ job.error_text || '—' }}</td></tr><tr v-if="!substore.jobs.length"><td colspan="5" class="empty">暂无同步记录</td></tr></tbody></table></div></div>
+        </section>
+
         <section v-if="page==='templates' && isOwner" class="content split">
           <div class="panel"><div class="panel-head"><div><p class="eyebrow">VERSIONS</p><h3>模板版本</h3></div></div><div class="version-list"><button v-for="tpl in templates" :key="tpl.id" @click="activateTemplate(tpl)" :class="{active:tpl.active}"><span>{{ tpl.source_type }}</span><code>{{ tpl.content_hash.slice(0,12) }}</code><small>{{ formatTime(tpl.created_at) }}</small></button><div v-if="!templates.length" class="empty">尚无模板</div></div></div>
           <form class="panel" @submit.prevent="createTemplate"><div class="panel-head"><h3>导入模板</h3></div><label>来源<select v-model="templateForm.source_type"><option value="local">本地 JSON</option><option value="remote">远程 URL</option></select></label><label v-if="templateForm.source_type==='remote'">远程地址<input v-model="templateForm.source_url" type="url" required></label><label v-else>模板 JSON<textarea v-model="templateForm.content" rows="15" required></textarea></label><button class="primary">保存为新版本</button></form>
@@ -77,7 +96,7 @@
 
         <section v-if="page==='system' && isOwner" class="content split">
           <div class="panel"><div class="panel-head"><h3>系统设置</h3></div><div class="setting-row"><div><strong>开放注册</strong><p>允许新用户提交注册申请</p></div><button class="switch" :class="{on:settings.registration_enabled}" @click="toggleRegistration"><i></i></button></div></div>
-          <div class="panel muted-panel"><div class="panel-head"><h3>Sub-Store</h3><span class="badge pending">P4</span></div><p>服务代理、同步状态和更新控制将在下一阶段接入。</p></div>
+          <div class="panel"><div class="panel-head"><h3>Sub-Store</h3><span class="badge active">已接入</span></div><p>管理页、健康检查与同步任务已统一到 owner 控制台。</p><button @click="page='substore'">打开 Sub-Store</button></div>
         </section>
 
         <section v-if="page==='account'" class="content split">
@@ -93,4 +112,5 @@
   <script src="/app.js"></script>
 </body>
 </html>
+
 
