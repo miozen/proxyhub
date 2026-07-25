@@ -16,17 +16,13 @@ const SUBSTORE_CSP = [
   "form-action 'self'"
 ].join('; ');
 
-function rewriteSubstoreUi(value) {
-  return value
-    .replaceAll('"/api', '"/substore-api/api')
-    .replaceAll("'/api", "'/substore-api/api")
-    .replaceAll('`/api', '`/substore-api/api')
-    .replaceAll('href="/', 'href="/substore/')
-    .replaceAll('src="/', 'src="/substore/')
-    .replaceAll('action="/', 'action="/substore/')
-    .replace(/(["'`])\/(css|js|assets|fonts|static)\//g, '$1/substore/$2/')
-    .replace(/(["'`])\/(favicon(?:\.[a-z0-9]+)?|manifest(?:\.[a-z0-9]+)?)/gi, '$1/substore/$2')
-    .replace(/url\((["']?)\/(?!\/|substore\/)/g, 'url($1/substore/');
+function rewriteSubstoreHtml(value) {
+  return value.replace(
+    /<link\b([^>]*\brel=(["'])manifest\2[^>]*)>/gi,
+    (match, attributes) => /\bcrossorigin=/i.test(attributes)
+      ? match
+      : `<link${attributes} crossorigin="use-credentials">`
+  );
 }
 
 function rewriteLocation(value, target, mountPath) {
@@ -83,7 +79,7 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
       }
       if (rewriteBody) responseHeaders['content-security-policy'] = SUBSTORE_CSP;
       const contentType = String(responseHeaders['content-type'] || '');
-      const shouldRewrite = rewriteBody && /(?:text|javascript|json)/i.test(contentType);
+      const shouldRewrite = rewriteBody && /text\/html/i.test(contentType);
 
       response.status(upstreamResponse.statusCode || 502);
       for (const [name, value] of Object.entries(responseHeaders)) {
@@ -105,7 +101,7 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
       });
       upstreamResponse.on('end', () => {
         if (size <= MAX_REWRITE_BYTES && !response.writableEnded) {
-          response.send(rewriteSubstoreUi(Buffer.concat(chunks).toString('utf8')));
+          response.send(rewriteSubstoreHtml(Buffer.concat(chunks).toString('utf8')));
         }
       });
     });

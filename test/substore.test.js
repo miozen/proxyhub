@@ -108,11 +108,18 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
     }
     if (request.url === '/index.js') {
       response.setHeader('content-type', 'application/javascript');
-      return response.end('loadCss("/css/nutui.css");loadCss(`/css/main.css`)');
+      return response.end(
+        'const api=new URLSearchParams(location.search).get("api");' +
+        'fetch(api+"/api/utils/env");import("/js/main-d98772a1.js");'
+      );
     }
     if (request.url === '/css/main.css') {
       response.setHeader('content-type', 'text/css');
       return response.end('body{color:green}');
+    }
+    if (request.url === '/js/main-d98772a1.js') {
+      response.setHeader('content-type', 'application/javascript');
+      return response.end('export const loaded=true');
     }
     if (request.url === '/manifests.json') {
       response.setHeader('content-type', 'application/json');
@@ -123,7 +130,11 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
       return response.end(JSON.stringify({ path: request.url }));
     }
     response.setHeader('content-type', 'text/html');
-    response.end('<a href="/assets/app.js">app</a><script>fetch("/api/data")</script>');
+    response.end(
+      '<link rel="manifest" href="/manifests.json">' +
+      '<link rel="stylesheet" href="/css/main.css">' +
+      '<script src="/index.js"></script>'
+    );
   });
   upstream.listen(0, '127.0.0.1');
   await new Promise((resolve) => upstream.once('listening', resolve));
@@ -152,20 +163,28 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
   let response = await fetch(`${base}/substore/`, { headers: { cookie: owner.cookie } });
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /href="\/substore\/assets\/app.js"/);
-  assert.match(html, /fetch\("\/substore-api\/api\/data"\)/);
+  assert.match(html, /href="\/css\/main\.css"/);
+  assert.match(html, /href="\/manifests\.json"/);
+  assert.match(html, /rel="manifest"[^>]*crossorigin="use-credentials"/);
   assert.match(response.headers.get('content-security-policy') || '', /style-src 'self' 'unsafe-inline'/);
 
   response = await fetch(`${base}/substore/index.js`, { headers: { cookie: owner.cookie } });
   assert.equal(response.status, 200);
   const javascript = await response.text();
-  assert.match(javascript, /"\/substore\/css\/nutui\.css"/);
-  assert.match(javascript, /`\/substore\/css\/main\.css`/);
+  assert.match(javascript, /fetch\(api\+"\/api\/utils\/env"\)/);
+  assert.match(javascript, /import\("\/js\/main-d98772a1\.js"\)/);
+  assert.doesNotMatch(javascript, /substore-api\/substore-api/);
+  assert.doesNotMatch(javascript, /fetch\("\/substore-api/);
 
   response = await fetch(`${base}/css/main.css`, { headers: { cookie: owner.cookie } });
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') || '', /text\/css/);
   assert.equal(await response.text(), 'body{color:green}');
+
+  response = await fetch(`${base}/js/main-d98772a1.js`, { headers: { cookie: owner.cookie } });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /javascript/);
+  assert.equal(await response.text(), 'export const loaded=true');
 
   response = await fetch(`${base}/manifests.json`, { headers: { cookie: owner.cookie } });
   assert.equal(response.status, 200);

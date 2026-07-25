@@ -1,6 +1,6 @@
 # P8 Repair Plan
 
-Status: F1-F5 implemented; repaired image awaits F6 Alpine acceptance
+Status: F6 found Sub-Store route regression; replacement fix awaits CI and Alpine retest
 Branch: `dev` only  
 Baseline runtime: `dev-b4ca063`  
 Scope: defects and behavior gaps found during Alpine P8 acceptance

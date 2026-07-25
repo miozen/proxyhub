@@ -196,3 +196,34 @@ refresh behavior.
 
 F6 must run the replacement image on Alpine and confirm zero actionable
 Console/Network errors in both ProxyHub and the official Sub-Store new-tab UI.
+
+## F6 defect 1 - official frontend route composition
+
+Alpine image `dev-477a49b` passed the isolated ProxyHub update gate: ProxyHub
+was recreated and Sub-Store retained the same container ID and start time.
+`/healthz` reported database and Sub-Store checks as healthy.
+
+The official UI browser run then reproduced:
+
+- duplicated `/substore-api/substore-api/api/...`;
+- dynamic JavaScript chunk 404 responses;
+- manifest 401 responses.
+
+Root cause:
+
+- the official frontend already composes its backend calls from the `?api=`
+  value, while ProxyHub was also rewriting `/api` literals in its JavaScript;
+- static asset rewriting conflicted with the frontend's root-based dynamic
+  chunks;
+- manifest fetches did not include the owner session cookie.
+
+Replacement behavior:
+
+- preserve official JavaScript, JSON and absolute asset paths unchanged;
+- use the owner-only root allowlist gateway for recorded assets;
+- pass exactly one backend base: `/substore-api`;
+- add `crossorigin="use-credentials"` to the manifest declaration;
+- retain the Sub-Store-only CSP and all proxy authorization/size protections.
+
+Local enforced suite after the fix: PASS, 29/29. A new fixed SHA image is
+required before F6 browser acceptance can resume.
