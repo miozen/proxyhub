@@ -25,7 +25,7 @@ async function json(route, options = {}) {
 
 await ready();
 if (process.env.P5_EXISTING === '1') {
-  const response = await fetch(`${base}/substore/`);
+  const response = await fetch(`${base}/?api=${encodeURIComponent(`${base}/invalid`)}`);
   assert.equal(response.status, 401);
   console.log('P5 existing-install smoke passed');
   process.exit(0);
@@ -46,18 +46,23 @@ assert.equal(loginResponse.status, 200);
 const cookie = loginResponse.headers.get('set-cookie')?.split(';', 1)[0];
 assert.ok(cookie);
 
-let response = await fetch(`${base}/substore/`, { headers: { cookie } });
+const status = await json('/api/admin/substore/status', { headers: { cookie } });
+assert.equal(status.response.status, 200);
+assert.match(status.body.backend_path, /^\/[a-f0-9]{32}$/);
+
+let response = await fetch(
+  `${base}/?api=${encodeURIComponent(base + status.body.backend_path)}`,
+  { headers: { cookie } }
+);
 assert.equal(response.status, 200);
 assert.match(response.headers.get('content-type') || '', /text\/html/i);
 assert.ok((await response.text()).length > 100);
 
-response = await fetch(`${base}/substore-api/api/utils/env`, { headers: { cookie } });
+response = await fetch(`${base}${status.body.backend_path}/api/utils/env`);
 assert.equal(response.status, 200);
 assert.match(response.headers.get('content-type') || '', /json/i);
 
-response = await fetch(`${base}/substore/`);
-assert.equal(response.status, 401);
-response = await fetch(`${base}/substore-api/api/utils/env`);
+response = await fetch(`${base}/?api=${encodeURIComponent(base + status.body.backend_path)}`);
 assert.equal(response.status, 401);
 
 console.log('P5 real-image Compose smoke passed');
