@@ -193,12 +193,12 @@ Local evidence on 2026-07-25:
 | Gate | State | Evidence |
 |---|---|---|
 | P5.A1 anonymous/member UI/API denied | PASS | proxy and admin API return 401/403 integration assertions |
-| P5.A2 pinned official UI/API/assets | PENDING | proxy adaptation covered by local upstream; real image requires Docker |
-| P5.A3 stream/WebSocket | PENDING | binary streaming passes; upstream source search found no WebSocket dependency; real image confirmation requires Docker |
+| P5.A2 pinned official UI/API/assets | PASS | pinned `2.36.21` real-image Compose smoke through authenticated ProxyHub UI/API |
+| P5.A3 stream/WebSocket | PASS | binary stream integration passes; upstream has no WebSocket dependency, recorded N/A after source and real-image verification |
 | P5.A4 manual/scheduled result history | PASS | manual success plus scheduled success/failure persistence assertions |
 | P5.A5 concurrent sync rejected | PASS | held first request causes second request to return 409 |
-| P5.A6 no direct host access | PENDING | Compose has no Sub-Store `ports`; runtime evidence requires Docker |
-| P5.A7 workflows green | PENDING | record after R5 commit workflows finish |
+| P5.A6 no direct host access | PASS | Docker `HostConfig.PortBindings` count is zero |
+| P5.A7 workflows green | PASS | R5 commit `9598750`, both workflows green |
 
 Implementation evidence:
 
@@ -216,8 +216,15 @@ Implementation evidence:
   ProxyHub image to initialize SQLite safely;
 - Compose exposes internal ports only and mounts no Docker socket.
 
-P5 remains `IN_PROGRESS`. P5.A2, P5.A3, P5.A6 require Docker evidence and
-P5.A7 requires green workflows.
+P5 state: `ACCEPTED` on 2026-07-25 after 20/20 local tests, pinned-image
+Docker smoke, runtime port-isolation evidence, green CI and explicit user
+confirmation.
+
+## Next checkpoint
+
+R5 is complete. R6 is limited to P6.1-P6.14 installation, lifecycle, backup,
+update and rollback work. P0 real-machine gates remain deferred to P8 by the
+user; they are not treated as accepted or removed.
 
 
 

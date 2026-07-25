@@ -60,8 +60,8 @@ phase numbers. Existing commits remain valid, but are reassigned below.
 | P2 | ACCEPTED | subscriptions and generation engine | accepted 2026-07-25 |
 | P3 | ACCEPTED | complete immutable template lifecycle | accepted 2026-07-25 |
 | P4 | ACCEPTED | unified Vue dashboard/navigation | accepted 2026-07-25 |
-| P5 | IN_PROGRESS | owner proxy, health, sync scheduler/history | real upstream, WebSocket/static/stream/error acceptance |
-| P6 | NOT_STARTED | none | all installation/update/backup work |
+| P5 | ACCEPTED | owner proxy, health, sync scheduler/history | accepted 2026-07-25 |
+| P6 | IN_PROGRESS | none | all installation/update/backup work |
 | P7 | NOT_STARTED | basic tests exist | full final matrix and security closure |
 | P8 | NOT_STARTED | dev images publish automatically | real dev deployment acceptance |
 | P9 | NOT_STARTED | none | PR/release only by explicit approval |
@@ -399,8 +399,9 @@ R5  finish and accept P5
 R6  start P6 only after P0-P5 are accepted
 ```
 
-Current checkpoint: `R4` complete. `R5` is active and limited to P5.1-P5.14.
-Do not enter R6 until P5 acceptance is recorded and explicitly confirmed.
+Current checkpoint: `R5` complete. `R6` is active and limited to P6.1-P6.14.
+P0 runtime evidence remains explicitly deferred to P8 by the user; this recorded
+sequence exception does not mark P0 accepted and does not relax any P0 gate.
 
 
 
