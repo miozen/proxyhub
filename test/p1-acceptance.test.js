@@ -149,4 +149,3 @@ test('P1 acceptance: secure cookie flags and login rate limit', async (context) 
   assert.equal(limited.body.error, 'rate_limited');
 });
 
-
