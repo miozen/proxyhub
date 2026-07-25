@@ -59,7 +59,10 @@ export function createSingboxRouter({ database, config, auth, service }) {
     const row = database.prepare('SELECT * FROM subscriptions WHERE id=? AND user_id=?').get(request.params.id, request.auth.user.id);
     if (!row) return response.status(404).json({ error: 'not_found' });
     try {
-      const nodes = normalizeNodes(await fetchJsonSafe(decryptUrl(row.url_encrypted, config.dataEncryptionKey)), '杩囨湡|鍓╀綑|缃戝潃');
+      const nodes = normalizeNodes(
+        await fetchJsonSafe(decryptUrl(row.url_encrypted, config.dataEncryptionKey)),
+        '\u8fc7\u671f|\u5269\u4f59|\u7f51\u5740'
+      );
       response.json({ success: true, nodes: nodes.length });
     } catch (error) { response.status(502).json({ success: false, error: error.message }); }
   });
@@ -100,4 +103,5 @@ export function createSingboxRouter({ database, config, auth, service }) {
   });
   return router;
 }
+
 

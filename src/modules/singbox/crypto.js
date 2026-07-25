@@ -18,3 +18,4 @@ export function decryptUrl(value, secret) {
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
 }
 
+

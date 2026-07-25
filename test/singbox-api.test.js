@@ -53,3 +53,4 @@ test('creates template and subscription then generates config by client token', 
   assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'HK-Node'));
 });
 
+

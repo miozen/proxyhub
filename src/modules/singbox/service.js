@@ -4,8 +4,14 @@ import { buildRegionalGroups, injectTemplate, normalizeNodes, validateTemplate }
 import { fetchJsonSafe } from './fetch.js';
 
 export const DEFAULTS = {
-  regions: { HK: ['HK', '棣欐腐'], TW: ['TW', '鍙版咕'], SG: ['SG', '鏂板姞鍧?], JP: ['JP', '鏃ユ湰'], US: ['US', '缇庡浗'] },
-  banned: '杩囨湡|鍓╀綑|缃戝潃|瀹樼綉|娴侀噺|鍒版湡|閲嶇疆|濂楅|缇ょ粍|閫氱煡|璐拱|缁存姢',
+  regions: {
+    HK: ['HK', '\u9999\u6e2f'],
+    TW: ['TW', '\u53f0\u6e7e'],
+    SG: ['SG', '\u65b0\u52a0\u5761'],
+    JP: ['JP', '\u65e5\u672c'],
+    US: ['US', '\u7f8e\u56fd']
+  },
+  banned: '\u8fc7\u671f|\u5269\u4f59|\u7f51\u5740|\u5b98\u7f51|\u6d41\u91cf|\u5230\u671f|\u91cd\u7f6e|\u5957\u9910|\u7fa4\u7ec4|\u901a\u77e5|\u8d2d\u4e70|\u7ef4\u62a4',
   urltest: { url: 'https://www.gstatic.com/generate_204', interval: '3m', tolerance: 150 }
 };
 
@@ -48,4 +54,5 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     hashTemplate: (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
   };
 }
+
 

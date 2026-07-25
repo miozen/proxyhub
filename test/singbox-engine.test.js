@@ -33,3 +33,4 @@ test('blocks private subscription targets', async () => {
   await assert.rejects(() => assertSafeUrl('file:///etc/passwd'), /unsafe_subscription_url/);
 });
 
+
