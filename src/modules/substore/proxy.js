@@ -43,11 +43,12 @@ function rewriteLocation(value, target, mountPath) {
 function rewriteCookies(values, mountPath) {
   if (!values) return values;
   const list = Array.isArray(values) ? values : [values];
+  const cookiePath = mountPath ? `${mountPath}/` : '/';
   return list.map((value) => {
     const withoutDomain = String(value).replace(/;\s*Domain=[^;]+/gi, '');
     return /;\s*Path=/i.test(withoutDomain)
-      ? withoutDomain.replace(/;\s*Path=[^;]*/gi, `; Path=${mountPath}/`)
-      : `${withoutDomain}; Path=${mountPath}/`;
+      ? withoutDomain.replace(/;\s*Path=[^;]*/gi, `; Path=${cookiePath}`)
+      : `${withoutDomain}; Path=${cookiePath}`;
   });
 }
 
@@ -129,6 +130,13 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
 
 export function mountSubstoreProxy(app, { auth, config }) {
   const ownerOnly = [auth.requireUser, auth.requireOwner];
+  const uiGateway = proxyTo(config.substoreUiOrigin, '', true);
+  for (const path of [
+    '/css', '/js', '/assets', '/fonts', '/static',
+    '/favicon.ico', '/manifest.json', '/manifests.json'
+  ]) {
+    app.use(path, ...ownerOnly, uiGateway);
+  }
   app.use('/substore-api', ...ownerOnly, proxyTo(config.substoreOrigin, '/substore-api'));
   app.use('/substore', ...ownerOnly, proxyTo(config.substoreUiOrigin, '/substore', true));
 }

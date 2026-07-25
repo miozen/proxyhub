@@ -1,6 +1,6 @@
 # P8 Repair Plan
 
-Status: F1 complete; F2-F6 require explicit phase start
+Status: F1 complete; F2 implemented, awaiting CI and Alpine browser acceptance; F3-F6 require explicit phase start
 Branch: `dev` only  
 Baseline runtime: `dev-b4ca063`  
 Scope: defects and behavior gaps found during Alpine P8 acceptance

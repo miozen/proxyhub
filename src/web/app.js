@@ -27,6 +27,9 @@ createApp({
   }),
   computed: {
     isOwner() { return this.user?.role === 'owner'; },
+    substoreUiUrl() {
+      return `/substore/?api=${encodeURIComponent(`${location.origin}/substore-api`)}`;
+    },
     visibleNav() { return this.nav.filter((item) => !item.owner || this.isOwner); },
     currentNav() { return this.nav.find((item) => item.id === this.page) || this.nav[0]; },
     pageTitle() { return this.currentNav.label; },

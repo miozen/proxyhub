@@ -21,6 +21,17 @@ async function json(base, route, options = {}) {
   };
 }
 
+test('F2 dashboard opens the official Sub-Store UI in a separate tab', () => {
+  const html = fs.readFileSync(new URL('../src/web/index.html', import.meta.url), 'utf8');
+  const javascript = fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /<iframe/i);
+  assert.match(html, /target="_blank"/);
+  assert.match(html, /rel="noopener noreferrer"/);
+  assert.match(html, /:href="substoreUiUrl"/);
+  assert.match(javascript, /\/substore\/\?api=/);
+  assert.match(javascript, /\/substore-api/);
+});
+
 test('owner manages Sub-Store health, sync and scheduling while members are denied', async (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-substore-'));
   const database = openDatabase(path.join(directory, 'proxyhub.db'));
@@ -99,6 +110,14 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
       response.setHeader('content-type', 'application/javascript');
       return response.end('loadCss("/css/nutui.css");loadCss(`/css/main.css`)');
     }
+    if (request.url === '/css/main.css') {
+      response.setHeader('content-type', 'text/css');
+      return response.end('body{color:green}');
+    }
+    if (request.url === '/manifests.json') {
+      response.setHeader('content-type', 'application/json');
+      return response.end('{"name":"Sub-Store"}');
+    }
     if (request.url.startsWith('/api/')) {
       response.setHeader('content-type', 'application/json');
       return response.end(JSON.stringify({ path: request.url }));
@@ -143,6 +162,15 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
   assert.match(javascript, /"\/substore\/css\/nutui\.css"/);
   assert.match(javascript, /`\/substore\/css\/main\.css`/);
 
+  response = await fetch(`${base}/css/main.css`, { headers: { cookie: owner.cookie } });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /text\/css/);
+  assert.equal(await response.text(), 'body{color:green}');
+
+  response = await fetch(`${base}/manifests.json`, { headers: { cookie: owner.cookie } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { name: 'Sub-Store' });
+
   response = await fetch(`${base}/substore-api/api/data?name=test`, { headers: { cookie: owner.cookie } });
   assert.deepEqual(await response.json(), { path: '/api/data?name=test' });
 
@@ -164,6 +192,20 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
     body: Buffer.alloc(5 * 1024 * 1024 + 1, 120)
   });
   assert.equal(response.status, 413);
+
+  response = await fetch(`${base}/css/main.css`);
+  assert.equal(response.status, 401);
+
+  await json(base, '/api/auth/register', {
+    method: 'POST', body: { username: 'member', password: 'member-password-123' }
+  });
+  const memberRow = database.prepare("SELECT id FROM users WHERE username='member'").get();
+  database.prepare("UPDATE users SET status='active' WHERE id=?").run(memberRow.id);
+  const member = await json(base, '/api/auth/login', {
+    method: 'POST', body: { username: 'member', password: 'member-password-123' }
+  });
+  response = await fetch(`${base}/css/main.css`, { headers: { cookie: member.cookie } });
+  assert.equal(response.status, 403);
 });
 
 test('P5 acceptance: scheduled success/failure history and global overlap lock', async (context) => {

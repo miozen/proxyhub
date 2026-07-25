@@ -2,7 +2,5 @@
 .substore-controls label{margin:0;min-width:180px}
 .substore-controls .check{min-width:auto;padding-bottom:10px}
 .button-link{display:inline-flex;align-items:center;justify-content:center;padding:10px 15px;border:1px solid var(--line);border-radius:9px;color:var(--text);text-decoration:none}
-.iframe-panel{padding:0;overflow:hidden;height:min(70vh,760px)}
-.iframe-panel iframe{width:100%;height:100%;border:0;background:#fff}
-@media(max-width:700px){.iframe-panel{height:70vh}.substore-controls>*{width:100%}}
+@media(max-width:700px){.substore-controls>*{width:100%}}
 

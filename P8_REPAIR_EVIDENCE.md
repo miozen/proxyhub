@@ -47,3 +47,37 @@ move the corresponding assertion into the enforced test/CI suite.
 - syntax and `git diff --check`: PASS;
 - F1.1-F1.5: complete;
 - next phase: F2.1-F2.6 only after explicit user start.
+
+## F2
+
+### F2.1-F2.6 implementation
+
+- Removed the embedded iframe and its dedicated CSS.
+- Added an owner-only new-tab link with `noopener noreferrer`.
+- Kept the official UI at `/substore/` and passed `/substore-api` as its API
+  target.
+- Added an owner-authenticated gateway limited to the recorded root asset
+  families and manifest/favicon paths.
+- Root assets retain their upstream content type; anonymous and member access
+  returns 401 and 403 respectively.
+- ProxyHub application routes and its default CSP remain unchanged.
+
+### Local verification
+
+Observed on 2026-07-25:
+
+- enforced local suite: PASS, 23/23;
+- syntax and `git diff --check`: PASS;
+- repair baseline: 1 passed, 2 failed;
+- the F2 root-asset case now passes;
+- the remaining failures are the intentionally pending F3 token and F4
+  lifecycle cases.
+
+### F2 remaining acceptance
+
+GitHub CI/image publication and the Alpine browser run must still prove:
+
+- the pinned official UI loads with no CSS MIME, missing asset, manifest or CSP
+  errors;
+- the UI calls `/substore-api/`;
+- no Sub-Store host port is exposed.

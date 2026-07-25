@@ -80,9 +80,8 @@
             <label>同步间隔（小时）<input v-model.number="substore.auto_sync_interval_hours" type="number" min="1" max="8760"></label>
             <button @click="saveSubstoreSettings">保存设置</button>
             <button class="primary" :disabled="substore.syncing" @click="syncSubstore">{{ substore.syncing?'同步中…':'立即同步' }}</button>
-            <a class="button-link" href="/substore/" target="substore-console">刷新管理页</a>
+            <a class="button-link" :href="substoreUiUrl" target="_blank" rel="noopener noreferrer">新窗口打开 Sub-Store</a>
           </div>
-          <div class="panel iframe-panel"><iframe name="substore-console" src="/substore/" title="Sub-Store 管理页"></iframe></div>
           <div class="panel"><div class="panel-head"><h3>同步历史</h3></div><div class="table-wrap"><table><thead><tr><th>状态</th><th>触发方式</th><th>开始时间</th><th>结束时间</th><th>错误</th></tr></thead><tbody><tr v-for="job in substore.jobs" :key="job.id"><td><span class="badge" :class="job.status">{{ job.status }}</span></td><td>{{ job.trigger_type }}</td><td>{{ formatTime(job.started_at) }}</td><td>{{ job.finished_at?formatTime(job.finished_at):'—' }}</td><td>{{ job.error_text || '—' }}</td></tr><tr v-if="!substore.jobs.length"><td colspan="5" class="empty">暂无同步记录</td></tr></tbody></table></div></div>
         </section>
 
