@@ -73,14 +73,10 @@
           <div class="stat-grid">
             <article><span>后端</span><strong>{{ substore.health.backend?'在线':'离线' }}</strong><small>Sub-Store API</small></article>
             <article><span>前端</span><strong>{{ substore.health.frontend?'在线':'离线' }}</strong><small>Sub-Store 管理页</small></article>
-            <article><span>同步</span><strong>{{ substore.syncing?'进行中':(substore.jobs[0]?.status || '—') }}</strong><small>{{ substore.jobs[0]?.finished_at ? formatTime(substore.jobs[0].finished_at) : '暂无记录' }}</small></article>
-            <article><span>自动同步</span><strong>{{ substore.auto_sync_enabled?'启用':'停用' }}</strong><small>每 {{ substore.auto_sync_interval_hours }} 小时</small></article>
+            <article><span>接入方式</span><strong>官方界面</strong><small>Sub-Store 自主管理业务</small></article>
+            <article><span>网络</span><strong>内部</strong><small>不暴露独立宿主机端口</small></article>
           </div>
           <div class="panel substore-controls">
-            <label class="check" for="substore-auto-sync"><input id="substore-auto-sync" v-model="substore.auto_sync_enabled" name="auto_sync_enabled" type="checkbox">启用自动同步</label>
-            <label for="substore-sync-interval">同步间隔（小时）</label><input id="substore-sync-interval" v-model.number="substore.auto_sync_interval_hours" name="auto_sync_interval_hours" type="number" min="1" max="8760">
-            <button @click="saveSubstoreSettings">保存设置</button>
-            <button class="primary" :disabled="substore.syncing" @click="syncSubstore">{{ substore.syncing?'同步中…':'立即同步' }}</button>
             <a class="button-link" :href="substoreUiUrl" target="_blank" rel="noopener noreferrer">新窗口打开 Sub-Store</a>
           </div>
           <div class="panel">
@@ -92,7 +88,7 @@
               <button class="danger" @click="resetSubstorePath">重置访问路径</button>
             </div>
           </div>
-          <div class="panel"><div class="panel-head"><h3>同步历史</h3></div><div class="table-wrap"><table><thead><tr><th>状态</th><th>触发方式</th><th>开始时间</th><th>结束时间</th><th>错误</th></tr></thead><tbody><tr v-for="job in substore.jobs" :key="job.id"><td><span class="badge" :class="job.status">{{ job.status }}</span></td><td>{{ job.trigger_type }}</td><td>{{ formatTime(job.started_at) }}</td><td>{{ job.finished_at?formatTime(job.finished_at):'—' }}</td><td>{{ job.error_text || '—' }}</td></tr><tr v-if="!substore.jobs.length"><td colspan="5" class="empty">暂无同步记录</td></tr></tbody></table></div></div>
+          <div class="panel"><div class="panel-head"><h3>职责边界</h3></div><p class="muted">订阅管理、组合转换、同步、导入导出和官方备份恢复均在 Sub-Store 界面完成。ProxyHub 只提供统一入口、随机后端路径、健康状态和容器运维。</p></div>
         </section>
 
         <section v-if="page==='templates' && isOwner" class="content split">

@@ -1,32 +1,35 @@
-import { randomBytes, randomUUID } from 'node:crypto';
-import { redact } from '../../security/redact.js';
+import { randomBytes } from 'node:crypto';
 
 const BACKEND_PATH_SETTING = 'substore_backend_path';
 
-async function request(url, timeoutMs = 10_000) {
+async function request(url, timeoutMs = 2_000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal, headers: { 'user-agent': 'ProxyHub/0.1' } });
-    const text = await response.text();
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'user-agent': 'ProxyHub/0.1' }
+    });
     if (!response.ok) throw new Error(`substore_http_${response.status}`);
-    return { status: response.status, body: text.slice(0, 20_000) };
-  } finally { clearTimeout(timer); }
+    return { status: response.status };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function createSubstoreService({
-  database, config, transport = request, schedulerIntervalMs = 60_000, now = () => Date.now()
+  database, config, transport = request, now = () => Date.now()
 }) {
-  let running = false;
-  function setting(key, fallback) {
-    const row = database.prepare('SELECT value_json FROM app_settings WHERE key=?').get(key);
-    return row ? JSON.parse(row.value_json) : fallback;
+  function setting() {
+    const row = database.prepare('SELECT value_json FROM app_settings WHERE key=?')
+      .get(BACKEND_PATH_SETTING);
+    return row ? JSON.parse(row.value_json) : null;
   }
 
-  function saveSetting(key, value) {
+  function save(value) {
     database.prepare(`INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?)
       ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`)
-      .run(key, JSON.stringify(value), new Date(now()).toISOString());
+      .run(BACKEND_PATH_SETTING, JSON.stringify(value), new Date(now()).toISOString());
   }
 
   function generateBackendPath() {
@@ -34,22 +37,18 @@ export function createSubstoreService({
   }
 
   function backendPath() {
-    const existing = setting(BACKEND_PATH_SETTING, null);
+    const existing = setting();
     if (typeof existing === 'string' && /^\/[a-f0-9]{32}$/.test(existing)) return existing;
     const created = generateBackendPath();
-    saveSetting(BACKEND_PATH_SETTING, created);
+    save(created);
     return created;
   }
 
   function resetBackendPath() {
     const replacement = generateBackendPath();
-    saveSetting(BACKEND_PATH_SETTING, replacement);
+    save(replacement);
     return replacement;
   }
-
-  backendPath();
-  database.prepare(`UPDATE jobs SET status='error',error_text='interrupted_by_restart',finished_at=?
-    WHERE type='substore_sync' AND status='running'`).run(new Date(now()).toISOString());
 
   async function health() {
     const checks = await Promise.allSettled([
@@ -61,54 +60,16 @@ export function createSubstoreService({
       frontend: checks[1].status === 'fulfilled',
       healthy: checks.every((item) => item.status === 'fulfilled'),
       errors: {
-        backend: checks[0].status === 'rejected' ? checks[0].reason?.message || 'unavailable' : null,
-        frontend: checks[1].status === 'rejected' ? checks[1].reason?.message || 'unavailable' : null
+        backend: checks[0].status === 'rejected'
+          ? checks[0].reason?.message || 'unavailable'
+          : null,
+        frontend: checks[1].status === 'rejected'
+          ? checks[1].reason?.message || 'unavailable'
+          : null
       }
     };
   }
 
-  async function sync(triggerType = 'manual') {
-    if (running) throw new Error('sync_already_running');
-    running = true;
-    const id = randomUUID();
-    const started = new Date(now()).toISOString();
-    database.prepare(`INSERT INTO jobs(id,type,status,trigger_type,started_at)
-      VALUES(?,'substore_sync','running',?,?)`).run(id, triggerType, started);
-    try {
-      const result = await transport(`${config.substoreOrigin}/api/sync`, 60_000);
-      database.prepare(`UPDATE jobs SET status='success',result_json=?,finished_at=? WHERE id=?`)
-        .run(JSON.stringify(result), new Date(now()).toISOString(), id);
-      return { id, success: true };
-    } catch (error) {
-      database.prepare(`UPDATE jobs SET status='error',error_text=?,finished_at=? WHERE id=?`)
-        .run(redact(error.message), new Date(now()).toISOString(), id);
-      throw error;
-    } finally { running = false; }
-  }
-
-  function settings() {
-    return {
-      auto_sync_enabled: setting('auto_sync_enabled', config.autoSyncEnabled),
-      auto_sync_interval_hours: setting('auto_sync_interval_hours', config.autoSyncIntervalHours)
-    };
-  }
-
-  async function runScheduled() {
-    if (!setting('auto_sync_enabled', config.autoSyncEnabled) || running) return;
-    const hours = Number(setting('auto_sync_interval_hours', config.autoSyncIntervalHours));
-    const last = database.prepare(`SELECT COALESCE(finished_at,started_at) last_at FROM jobs
-      WHERE type='substore_sync' ORDER BY started_at DESC LIMIT 1`).get();
-    if (!last || now() - Date.parse(last.last_at) >= hours * 3_600_000) {
-      try { await sync('schedule'); } catch (error) { console.error('[substore] scheduled sync failed:', redact(error.message)); }
-    }
-  }
-
-  const timer = setInterval(runScheduled, schedulerIntervalMs);
-  timer.unref();
-
-  return {
-    health, sync, settings, backendPath, resetBackendPath, runScheduled,
-    stop: () => clearInterval(timer), isRunning: () => running
-  };
+  backendPath();
+  return { health, backendPath, resetBackendPath };
 }
-

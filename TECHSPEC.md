@@ -266,12 +266,12 @@ visibility: owner
 direct_host_exposure: false
 controls:
   - health
+  - open_native_ui
+  - view_backend_path
+  - reset_backend_path
   - start
   - stop
   - restart
-  - sync_now
-  - auto_sync_enabled
-  - sync_interval
   - update_check
   - update_apply
   - rollback
@@ -281,15 +281,8 @@ Constraint: application container must not mount Docker socket.
 
 Container lifecycle actions (`start/stop/restart/update`) run through an installation-side management command/script, not arbitrary application shell execution. If secure lifecycle control cannot be implemented without Docker socket, v0.1 UI exposes state/instructions only; Compose remains operator-controlled.
 
-Scheduler:
-
-```yaml
-scope: global-singleton
-overlap: forbidden
-success_recorded_only_after_upstream_success: true
-default_auto_sync: false
-default_interval_hours: 12
-```
+Sub-Store owns subscriptions, conversion, sync, import/export and its native
+backup/restore format. ProxyHub does not duplicate those business operations.
 
 ## 9. Update model
 
@@ -346,8 +339,6 @@ DATABASE_PATH=/app/data/proxyhub.db
 SUBSTORE_ORIGIN=http://sub-store:3000
 SUBSTORE_UI_ORIGIN=http://sub-store:3001
 SUBSTORE_IMAGE=
-AUTO_SYNC_ENABLED=false
-AUTO_SYNC_INTERVAL_HOURS=12
 ```
 
 Startup fails on missing/weak production secrets. Generate secrets during install; do not commit `.env`.

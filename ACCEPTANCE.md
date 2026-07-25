@@ -178,6 +178,11 @@ acceptance gates. No P6 lifecycle/update work may be mixed into R5.
 
 ## R5 - P5 evidence
 
+Historical note: this section records the first accepted P5 implementation.
+F6S later superseded its `/substore/`, `/substore-api/`, rewriting and sync
+scheduler behavior with the root frontend, random backend path and transparent
+proxy boundary recorded in `P8_REPAIR_PLAN.md`.
+
 Local evidence on 2026-07-25:
 
 - Node syntax check: PASS.

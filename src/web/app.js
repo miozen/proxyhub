@@ -14,7 +14,7 @@ createApp({
     subscriptions: [], runs: [], users: [], templates: [], settings: {},
     singboxSettings: { region_keywords: {}, banned_keywords: '', urltest_params: { url: '', interval: '', tolerance: 150 } },
     regionKeywordText: {},
-    substore: { health: {}, jobs: [], syncing: false, auto_sync_enabled: false, auto_sync_interval_hours: 12, backend_path: '' },
+    substore: { health: {}, backend_path: '' },
     generatedUrl: '', generationResult: null, subscriptionModal: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
     templateForm: { parent_id: null, source_type: 'local', source_url: '', content: '' },
@@ -112,24 +112,6 @@ createApp({
       this.regions = Object.keys(singbox.settings.region_keywords);
     },
     async loadSubstore() { this.substore = await this.api('/api/admin/substore/status'); },
-    async syncSubstore() {
-      try {
-        await this.api('/api/admin/substore/sync', { method: 'POST' });
-        await this.loadSubstore();
-        this.flash('Sub-Store 同步完成');
-      } catch (error) {
-        await this.loadSubstore().catch(() => {});
-        this.flash(`同步失败：${error.message}`, 'error');
-      }
-    },
-    async saveSubstoreSettings() {
-      await this.api('/api/admin/substore/settings', {
-        method: 'PUT',
-        body: { enabled: this.substore.auto_sync_enabled, interval_hours: this.substore.auto_sync_interval_hours }
-      });
-      await this.loadSubstore();
-      this.flash('自动同步设置已保存');
-    },
     async resetSubstorePath() {
       if (!confirm('确认重置 Sub-Store 后端访问路径？旧地址会立即失效，使用旧地址的前端需要改用新地址。')) return;
       const data = await this.api('/api/admin/substore/backend-path/reset', { method: 'POST' });

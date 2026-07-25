@@ -12,28 +12,32 @@ import { createSubstoreRouter } from './modules/substore/routes.js';
 import { mountSubstoreProxy } from './modules/substore/proxy.js';
 
 export function createApp({
-  config, database, probeSubstore, singboxFetch, substoreTransport,
-  substoreSchedulerIntervalMs, substoreNow
+  config, database, probeSubstore, singboxFetch, substoreTransport, substoreNow
 }) {
   const app = express();
   const webRoot = fileURLToPath(new URL('./web/', import.meta.url));
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
-  app.use((_request, response, next) => {
-    response.set({
-      'X-Content-Type-Options': 'nosniff',
-      'Referrer-Policy': 'no-referrer',
-      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'"
-    });
+  app.use((request, response, next) => {
+    if (
+      request.path === '/proxyhub' || request.path.startsWith('/proxyhub/') ||
+      request.path === '/healthz' || request.path.startsWith('/healthz/') ||
+      request.path === '/api' || request.path.startsWith('/api/')
+    ) {
+      response.set({
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'"
+      });
+    }
     next();
   });
   const auth = createAuth({ database, config });
   const singbox = createSingboxService({ database, config, fetchJson: singboxFetch });
   const substore = createSubstoreService({
-    database, config, transport: substoreTransport,
-    schedulerIntervalMs: substoreSchedulerIntervalMs, now: substoreNow
+    database, config, transport: substoreTransport, now: substoreNow
   });
   app.use('/api', express.json({ limit: '1mb' }));
 
@@ -41,9 +45,7 @@ export function createApp({
   app.use('/api/auth', createAuthRouter({ database, config, auth }));
   app.use('/api', createSingboxRouter({ database, config, auth, service: singbox }));
   app.use('/api', createUserRouter({ database, config, auth }));
-  app.use('/api/admin/substore', createSubstoreRouter({ database, auth, service: substore }));
-  app.locals.stopBackgroundTasks = () => substore.stop();
-  app.locals.runSubstoreScheduler = () => substore.runScheduled();
+  app.use('/api/admin/substore', createSubstoreRouter({ auth, service: substore }));
 
   app.get('/proxyhub/vendor/vue.js', (_request, response) => {
     response.sendFile(path.resolve('node_modules/vue/dist/vue.global.prod.js'));

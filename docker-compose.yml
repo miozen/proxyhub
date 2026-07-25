@@ -18,8 +18,6 @@ services:
       DATABASE_PATH: /app/data/proxyhub.db
       SUBSTORE_ORIGIN: http://sub-store:3000
       SUBSTORE_UI_ORIGIN: http://sub-store:3001
-      AUTO_SYNC_ENABLED: ${AUTO_SYNC_ENABLED:-false}
-      AUTO_SYNC_INTERVAL_HOURS: ${AUTO_SYNC_INTERVAL_HOURS:-12}
     ports:
       - "${PORT:-3000}:3000"
     volumes:

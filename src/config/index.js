@@ -41,9 +41,7 @@ export function loadConfig(env = process.env) {
     dataEncryptionKey,
     databasePath: path.resolve(env.DATABASE_PATH || 'data/proxyhub.db'),
     substoreOrigin: new URL(env.SUBSTORE_ORIGIN || 'http://sub-store:3000').origin,
-    substoreUiOrigin: new URL(env.SUBSTORE_UI_ORIGIN || 'http://sub-store:3001').origin,
-    autoSyncEnabled: asBoolean(env.AUTO_SYNC_ENABLED),
-    autoSyncIntervalHours: asInteger(env.AUTO_SYNC_INTERVAL_HOURS, 12, { min: 1, max: 8760 })
+    substoreUiOrigin: new URL(env.SUBSTORE_UI_ORIGIN || 'http://sub-store:3001').origin
   });
 }
 

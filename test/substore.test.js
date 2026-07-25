@@ -34,23 +34,19 @@ test('F6R dashboard opens root Sub-Store UI with the resettable backend path', (
   assert.doesNotMatch(javascript, /\/substore-api/);
 });
 
-test('owner manages Sub-Store health, sync and scheduling while members are denied', async (context) => {
+test('F6S owner manages only Sub-Store health and backend path while members are denied', async (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-substore-'));
   const database = openDatabase(path.join(directory, 'proxyhub.db'));
-  const calls = [];
   const app = createApp({
     config: loadConfig({ NODE_ENV: 'development' }),
     database,
     probeSubstore: async () => ({ reachable: true, status: 200 }),
-    substoreTransport: async (url) => {
-      calls.push(url);
-      return { status: 200, body: 'ok' };
-    }
+    substoreTransport: async () => ({ status: 200 })
   });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   context.after(() => {
-    app.locals.stopBackgroundTasks();
+    app.locals.stopBackgroundTasks?.();
     server.close();
     database.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -69,20 +65,17 @@ test('owner manages Sub-Store health, sync and scheduling while members are deni
     backend: true, frontend: true, healthy: true, errors: { backend: null, frontend: null }
   });
 
+  assert.match(result.body.backend_path, /^\/[a-f0-9]{32}$/);
+  assert.deepEqual(Object.keys(result.body).sort(), ['backend_path', 'health']);
+
+  result = await json(base, '/api/admin/substore/sync', {
+    method: 'POST', headers: ownerHeaders
+  });
+  assert.equal(result.response.status, 404);
   result = await json(base, '/api/admin/substore/settings', {
     method: 'PUT', headers: ownerHeaders, body: { enabled: true, interval_hours: 6 }
   });
-  assert.equal(result.response.status, 200);
-  result = await json(base, '/api/admin/substore/sync', { method: 'POST', headers: ownerHeaders });
-  assert.equal(result.response.status, 200);
-  assert.ok(calls.some((url) => url.endsWith('/api/sync')));
-
-  result = await json(base, '/api/admin/substore/status', { headers: ownerHeaders });
-  assert.equal(result.body.auto_sync_enabled, true);
-  assert.equal(result.body.auto_sync_interval_hours, 6);
-  assert.match(result.body.backend_path, /^\/[a-f0-9]{32}$/);
-  assert.equal(result.body.jobs[0].status, 'success');
-  assert.equal(result.body.jobs[0].trigger_type, 'manual');
+  assert.equal(result.response.status, 404);
 
   const member = await json(base, '/api/auth/login', { method: 'POST', body: { username: 'member', password: 'member-password-123' } });
   result = await json(base, '/api/admin/substore/status', { headers: { cookie: member.cookie } });
@@ -93,7 +86,7 @@ test('owner manages Sub-Store health, sync and scheduling while members are deni
   assert.equal(result.response.status, 401);
 });
 
-test('F6R root frontend and resettable backend path proxy without subpath rewrites', async (context) => {
+test('F6S transparently proxies the root frontend and resettable backend path', async (context) => {
   const binary = Buffer.from(Array.from({ length: 64 * 1024 }, (_value, index) => index % 251));
   const upstream = http.createServer((request, response) => {
     if (request.url === '/api/restore' && request.method === 'POST') {
@@ -117,6 +110,14 @@ test('F6R root frontend and resettable backend path proxy without subpath rewrit
       response.setHeader('content-type', 'application/octet-stream');
       response.write(binary.subarray(0, 1000));
       return response.end(binary.subarray(1000));
+    }
+    if (request.url === '/large-upload' && request.method === 'POST') {
+      let received = 0;
+      request.on('data', (chunk) => { received += chunk.length; });
+      return request.on('end', () => {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ received }));
+      });
     }
     if (request.url === '/registerSW.js') {
       response.setHeader('content-type', 'application/javascript');
@@ -166,7 +167,7 @@ test('F6R root frontend and resettable backend path proxy without subpath rewrit
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   context.after(() => {
-    app.locals.stopBackgroundTasks();
+    app.locals.stopBackgroundTasks?.();
     server.close();
     upstream.close();
     database.close();
@@ -187,7 +188,7 @@ test('F6R root frontend and resettable backend path proxy without subpath rewrit
   const html = await response.text();
   assert.match(html, /href="\/css\/main\.css"/);
   assert.match(html, /href="\/manifests\.json"/);
-  assert.match(response.headers.get('content-security-policy') || '', /style-src 'self' 'unsafe-inline'/);
+  assert.equal(response.headers.get('content-security-policy'), null);
 
   response = await fetch(`${base}/index.js`, { headers: { cookie: owner.cookie } });
   assert.equal(response.status, 200);
@@ -231,25 +232,27 @@ test('F6R root frontend and resettable backend path proxy without subpath rewrit
 
   response = await fetch(`${base}${backendPath}/redirect`, { redirect: 'manual' });
   assert.equal(response.status, 302);
-  assert.equal(response.headers.get('location'), `${backendPath}/next?from=upstream`);
-  assert.match(response.headers.get('set-cookie'), new RegExp(`Path=${backendPath}/`));
-  assert.doesNotMatch(response.headers.get('set-cookie'), /Domain=/i);
+  assert.equal(response.headers.get('location'), '/next?from=upstream');
+  assert.match(response.headers.get('set-cookie'), /Path=\//);
+  assert.match(response.headers.get('set-cookie'), /Domain=127\.0\.0\.1/i);
 
   response = await fetch(`${base}${backendPath}/binary`);
   assert.equal(response.headers.get('content-type'), 'application/octet-stream');
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), binary);
 
-  response = await fetch(`${base}${backendPath}/api/data`, {
+  const largeBody = Buffer.alloc(6 * 1024 * 1024, 120);
+  response = await fetch(`${base}${backendPath}/large-upload`, {
     method: 'POST',
-    headers: { cookie: owner.cookie },
-    body: Buffer.alloc(5 * 1024 * 1024 + 1, 120)
+    headers: { 'content-type': 'application/octet-stream' },
+    body: largeBody
   });
-  assert.equal(response.status, 413);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).received, largeBody.length);
 
   response = await fetch(`${base}/registerSW.js`, { headers: { cookie: owner.cookie } });
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') || '', /javascript/);
-  assert.match(await response.text(), /registration\.unregister/);
+  assert.equal(await response.text(), 'upstream-worker');
 
   response = await fetch(`${base}/css/main.css`);
   assert.equal(response.status, 200);
@@ -285,78 +288,9 @@ test('F6R root frontend and resettable backend path proxy without subpath rewrit
   assert.equal(response.headers.get('location'), '/proxyhub/');
 });
 
-test('P5 acceptance: scheduled success/failure history and global overlap lock', async (context) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-substore-schedule-'));
-  const database = openDatabase(path.join(directory, 'proxyhub.db'));
-  let clock = Date.parse('2026-07-25T00:00:00.000Z');
-  let release;
-  let mode = 'hold';
-  const transport = async (url) => {
-    if (!url.endsWith('/api/sync')) return { status: 200, body: 'healthy' };
-    if (mode === 'hold') return new Promise((resolve) => { release = resolve; });
-    if (mode === 'fail') throw new Error('upstream_sync_failed');
-    return { status: 200, body: 'scheduled-ok' };
-  };
-  const app = createApp({
-    config: loadConfig({ NODE_ENV: 'development' }),
-    database,
-    probeSubstore: async () => ({ reachable: true, status: 200 }),
-    substoreTransport: transport,
-    substoreSchedulerIntervalMs: 86_400_000,
-    substoreNow: () => clock
-  });
-  const server = app.listen(0, '127.0.0.1');
-  await new Promise((resolve) => server.once('listening', resolve));
-  context.after(() => {
-    app.locals.stopBackgroundTasks();
-    server.close();
-    database.close();
-    fs.rmSync(directory, { recursive: true, force: true });
-  });
-  const base = `http://127.0.0.1:${server.address().port}`;
-  await json(base, '/api/auth/register', {
-    method: 'POST', body: { username: 'owner', password: 'owner-password-123' }
-  });
-  const owner = await json(base, '/api/auth/login', {
-    method: 'POST', body: { username: 'owner', password: 'owner-password-123' }
-  });
-  const headers = { cookie: owner.cookie, 'x-csrf-token': owner.body.csrf_token };
-
-  const first = json(base, '/api/admin/substore/sync', { method: 'POST', headers });
-  while (!release) await new Promise((resolve) => setImmediate(resolve));
-  const overlap = await json(base, '/api/admin/substore/sync', { method: 'POST', headers });
-  assert.equal(overlap.response.status, 409);
-  assert.equal(overlap.body.error, 'sync_already_running');
-  release({ status: 200, body: 'manual-ok' });
-  assert.equal((await first).response.status, 200);
-
-  await json(base, '/api/admin/substore/settings', {
-    method: 'PUT', headers, body: { enabled: true, interval_hours: 1 }
-  });
-  clock += 3_600_001;
-  mode = 'fail';
-  await app.locals.runSubstoreScheduler();
-  let jobs = database.prepare(`SELECT status,trigger_type,error_text FROM jobs
-    WHERE type='substore_sync' ORDER BY started_at DESC`).all();
-  assert.deepEqual(jobs[0], {
-    status: 'error', trigger_type: 'schedule', error_text: 'upstream_sync_failed'
-  });
-
-  clock += 3_600_001;
-  mode = 'success';
-  await app.locals.runSubstoreScheduler();
-  jobs = database.prepare(`SELECT status,trigger_type,error_text FROM jobs
-    WHERE type='substore_sync' ORDER BY started_at DESC`).all();
-  assert.equal(jobs[0].status, 'success');
-  assert.equal(jobs[0].trigger_type, 'schedule');
-  assert.equal(jobs.length, 3);
-});
-
-test('P5 acceptance: health exposes useful per-component failures and stale running jobs recover', async (context) => {
+test('F6S health exposes useful per-component failures without business jobs', async (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-substore-health-'));
   const database = openDatabase(path.join(directory, 'proxyhub.db'));
-  database.prepare(`INSERT INTO jobs(id,type,status,trigger_type,started_at)
-    VALUES('stale','substore_sync','running','schedule','2026-07-24T00:00:00.000Z')`).run();
   const app = createApp({
     config: loadConfig({ NODE_ENV: 'development' }),
     database,
@@ -369,7 +303,7 @@ test('P5 acceptance: health exposes useful per-component failures and stale runn
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   context.after(() => {
-    app.locals.stopBackgroundTasks();
+    app.locals.stopBackgroundTasks?.();
     server.close();
     database.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -385,7 +319,6 @@ test('P5 acceptance: health exposes useful per-component failures and stale runn
   assert.equal(result.body.health.backend, true);
   assert.equal(result.body.health.frontend, false);
   assert.equal(result.body.health.errors.frontend, 'ui_connection_refused');
-  assert.equal(result.body.jobs[0].status, 'error');
-  assert.equal(result.body.jobs[0].error_text, 'interrupted_by_restart');
+  assert.equal(result.body.jobs, undefined);
 });
 

@@ -105,7 +105,7 @@ test('P2 acceptance: isolates failed sources and users and obeys cache fallback'
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   context.after(() => {
-    app.locals.stopBackgroundTasks();
+    app.locals.stopBackgroundTasks?.();
     server.close();
     database.close();
     fs.rmSync(directory, { recursive: true, force: true });

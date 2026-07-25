@@ -103,9 +103,7 @@ CREATE INDEX audit_logs_created_at_idx ON audit_logs(created_at DESC);
 
 INSERT INTO app_settings (key, value_json, updated_at)
 VALUES
-  ('registration_enabled', 'true', CURRENT_TIMESTAMP),
-  ('auto_sync_enabled', 'false', CURRENT_TIMESTAMP),
-  ('auto_sync_interval_hours', '12', CURRENT_TIMESTAMP);
+  ('registration_enabled', 'true', CURRENT_TIMESTAMP);
 
 
 

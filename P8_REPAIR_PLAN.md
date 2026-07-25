@@ -1,6 +1,6 @@
 # P8 Repair Plan
 
-Status: F6R follow-up implemented locally; replacement dev CI and Alpine acceptance pending
+Status: F6S implemented locally; dev CI and Alpine native-operation acceptance pending
 Branch: `dev` only  
 Baseline runtime: `dev-b4ca063`  
 Scope: defects and behavior gaps found during Alpine P8 acceptance
@@ -232,6 +232,45 @@ Exit:
 - changed filtering rules alter retained nodes;
 - changed UrlTest values appear in generated groups;
 - members cannot read or change global generation settings.
+
+### F6S - Remove duplicated Sub-Store business management
+
+Final boundary:
+
+- ProxyHub owns unified identity, sing-box, templates, the Sub-Store entry,
+  health, random backend path and host-side container operations.
+- Sub-Store owns subscription management, conversion, sync, import/export,
+  native backup/restore, frontend assets, manifest and service worker.
+
+Remove from ProxyHub:
+
+- manual and scheduled Sub-Store sync;
+- automatic sync settings and interval;
+- sync jobs/history and overlap lock;
+- Sub-Store response/body/CSP/cookie/service-worker rewriting;
+- application-level Sub-Store upload-size and timeout policy.
+
+Retain:
+
+- owner-only official frontend entry;
+- public official static assets required by that frontend;
+- resettable random backend path;
+- backend and frontend health state;
+- raw streaming request/response proxy;
+- no direct Sub-Store host port;
+- component-scoped CLI lifecycle/update/rollback;
+- full-stack volume backup plus Sub-Store's separate native backup.
+
+Acceptance:
+
+- removed sync routes return 404 and no scheduler starts;
+- owner status returns only health and backend path;
+- official CSS/JS/manifest/service worker are upstream responses unchanged;
+- JSON restore bodies and uploads larger than 5 MiB pass unchanged;
+- members cannot open the official root entry or manage the backend path;
+- random-path reset invalidates the old path;
+- ProxyHub security headers remain scoped to ProxyHub routes;
+- both workflows and Alpine native backup/restore pass.
 
 ## 3. Commit boundaries
 

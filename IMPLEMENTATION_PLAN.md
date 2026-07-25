@@ -237,39 +237,40 @@ Exit: all P4.A items recorded, then user confirms P4.
 
 Goal: privately run the official Sub-Store and expose it only through ProxyHub.
 
+F6S final-boundary amendment: the original P5 subpath adaptation and sync
+management were removed after real-image testing. The authoritative design is
+the official root frontend plus resettable random backend path.
+
 Tasks:
 
 - P5.1 Compose uses official configurable Sub-Store image.
 - P5.2 no Sub-Store host port and no Docker socket.
-- P5.3 owner-only same-origin UI proxy at `/substore/`.
-- P5.4 owner-only API proxy at `/substore-api/`.
-- P5.5 static asset, redirect, cookie and absolute-path adaptation.
+- P5.3 owner-only official frontend entry at `/?api=<random backend URL>`.
+- P5.4 resettable random backend path with prefix stripping.
+- P5.5 transparent official frontend assets and backend streams.
 - P5.6 WebSocket upgrade support if used by the pinned upstream; otherwise record verified not-applicable evidence.
 - P5.7 preserve binary/stream responses without buffering.
-- P5.8 bounded rewriting for textual UI responses.
+- P5.8 no textual, CSP, cookie, manifest or service-worker rewriting.
 - P5.9 backend/UI health status and useful error details.
-- P5.10 manual sync.
-- P5.11 automatic sync switch and interval.
-- P5.12 global overlap lock.
-- P5.13 persistent recent result/error history.
-- P5.14 real pinned-image integration tests.
+- P5.10 Sub-Store owns sync, import/export and native backup/restore.
+- P5.11 real pinned-image integration tests.
 
 Principles:
 
 - no independent `sub-store-panel` user system;
 - no `admin/admin`;
-- no random public access path;
+- one resettable random backend access path;
 - no direct public Sub-Store port;
 - no Docker socket in ProxyHub;
-- proxy adaptation is preferred over opening another host port.
+- transparent proxying is preferred over application adaptation.
 
 Acceptance:
 
-- P5.A1 member and anonymous UI/API access fail. `[IT,ST]`
+- P5.A1 member and anonymous official frontend entry access fail. `[IT,ST]`
 - P5.A2 official pinned image UI/API/assets work through ProxyHub. `[DT,BT]`
 - P5.A3 stream/WebSocket behavior is tested or proven not applicable. `[IT,DT]`
-- P5.A4 manual and scheduled sync success/failure are recorded. `[IT]`
-- P5.A5 concurrent sync is rejected. `[IT]`
+- P5.A4 native backup restore bodies and large uploads pass unchanged. `[IT,DT]`
+- P5.A5 reset invalidates the previous backend path. `[IT]`
 - P5.A6 direct host access remains impossible. `[DT,ST]`
 - P5.A7 both workflows are green. `[CI]`
 

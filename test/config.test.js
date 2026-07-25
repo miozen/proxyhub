@@ -6,7 +6,7 @@ test('loads safe development defaults', () => {
   const config = loadConfig({ NODE_ENV: 'development' });
   assert.equal(config.port, 3000);
   assert.equal(config.registrationEnabled, true);
-  assert.equal(config.autoSyncEnabled, false);
+  assert.equal(config.substoreOrigin, 'http://sub-store:3000');
 });
 
 test('rejects placeholder secrets in production', () => {

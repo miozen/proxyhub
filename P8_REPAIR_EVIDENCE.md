@@ -300,3 +300,23 @@ The JSON parser is now scoped to ProxyHub `/api/*` only. Requests under the
 random Sub-Store backend path remain raw streams. A proxy integration test
 asserts that a Unicode JSON backup body and its content type reach the upstream
 byte-for-byte unchanged.
+
+## F6S - final Sub-Store boundary
+
+ProxyHub no longer implements Sub-Store sync, scheduling, settings or job
+history. The associated API routes, page controls, timer and environment
+variables were removed.
+
+The gateway now follows the original panel model:
+
+- root requests and official assets stream directly from the frontend;
+- the active random prefix is stripped and the remaining request streams
+  directly to the backend;
+- upstream status, headers and body are passed through without CSP, cookie,
+  redirect, manifest, JavaScript or service-worker rewriting;
+- ProxyHub security headers apply only to `/proxyhub/`, `/api/*` and
+  `/healthz`;
+- no application-level 5 MiB limit is imposed on Sub-Store native operations.
+
+ProxyHub retains only owner entry authorization, health, random-path
+show/copy/reset and host-side component lifecycle commands.
