@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+data
+coverage
+*.log
+.env
+TECHSPEC.md
+

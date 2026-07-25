@@ -1,0 +1,20 @@
+{
+  "name": "proxyhub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/config/index.js && node --check src/db/index.js && node --check src/db/migrate.js && node --check src/modules/health/routes.js",
+    "test": "node --test",
+    "ci": "npm run check && npm test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2"
+  }
+}
+
