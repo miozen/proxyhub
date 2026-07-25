@@ -14,10 +14,17 @@ export function createUserRouter({ database, auth }) {
   const router = Router();
   router.use(auth.requireUser);
 
-  router.get('/me', (request, response) => response.json({
-    user: publicUser(request.auth.user),
-    csrf_token: auth.csrfToken(request.auth.raw)
-  }));
+  router.get('/me', (request, response) => {
+    const clientToken = auth.ensureClientToken(request.auth.user.id);
+    response.json({
+      user: {
+        ...publicUser(request.auth.user),
+        client_token: clientToken,
+        client_token_reset_required: clientToken === null
+      },
+      csrf_token: auth.csrfToken(request.auth.raw)
+    });
+  });
 
   router.put('/me/username', auth.requireCsrf, (request, response) => {
     const username = request.body?.username;
@@ -43,13 +50,7 @@ export function createUserRouter({ database, auth }) {
   });
 
   router.post('/me/token/reset', auth.requireCsrf, (request, response) => {
-    const raw = auth.newClientToken();
-    database.transaction(() => {
-      database.prepare('UPDATE client_tokens SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL').run(new Date().toISOString(), request.auth.user.id);
-      database.prepare('INSERT INTO client_tokens(id,token_hash,user_id,created_at) VALUES(?,?,?,?)')
-        .run(auth.newId(), auth.tokenHash(raw), request.auth.user.id, new Date().toISOString());
-    })();
-    response.json({ token: raw });
+    response.json({ token: auth.resetClientToken(request.auth.user.id) });
   });
 
   router.get('/admin/users', auth.requireOwner, (_request, response) => {
@@ -59,7 +60,12 @@ export function createUserRouter({ database, auth }) {
   for (const [action, status] of [['approve', 'active'], ['reject', 'rejected'], ['enable', 'active'], ['disable', 'disabled']]) {
     router.post(`/admin/users/:id/${action}`, auth.requireOwner, auth.requireCsrf, (request, response) => {
       if (request.params.id === request.auth.user.id && status !== 'active') return response.status(400).json({ error: 'owner_self_action' });
-      const result = database.prepare('UPDATE users SET status=?,updated_at=? WHERE id=?').run(status, new Date().toISOString(), request.params.id);
+      const result = database.transaction(() => {
+        const changed = database.prepare('UPDATE users SET status=?,updated_at=? WHERE id=?')
+          .run(status, new Date().toISOString(), request.params.id);
+        if (changed.changes && status === 'active') auth.ensureClientToken(request.params.id);
+        return changed;
+      })();
       if (!result.changes) return response.status(404).json({ error: 'user_not_found' });
       if (status !== 'active') auth.revokeUserAccess(request.params.id);
       response.json({ success: true, status });

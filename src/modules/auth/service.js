@@ -102,11 +102,37 @@ export function createAuth({ database, config }) {
     })();
   }
 
+  function resetClientToken(userId) {
+    const raw = randomBytes(36).toString('base64url');
+    const now = new Date().toISOString();
+    database.transaction(() => {
+      database.prepare('UPDATE client_tokens SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL')
+        .run(now, userId);
+      database.prepare(`
+        INSERT INTO client_tokens(id,token_hash,raw_token,user_id,created_at)
+        VALUES(?,?,?,?,?)
+      `).run(randomUUID(), sha256(raw), raw, userId, now);
+    })();
+    return raw;
+  }
+
+  function ensureClientToken(userId) {
+    const active = database.prepare(`
+      SELECT raw_token FROM client_tokens
+      WHERE user_id=? AND revoked_at IS NULL
+      ORDER BY created_at DESC LIMIT 1
+    `).get(userId);
+    if (active) return active.raw_token || null;
+    return resetClientToken(userId);
+  }
+
   return {
     cookie, createSession, csrfToken, current, requireUser, requireOwner, requireCsrf,
     revokeSession: (raw) => database.prepare('DELETE FROM sessions WHERE id_hash=?').run(sha256(raw)),
     revokeUser: (id) => database.prepare('DELETE FROM sessions WHERE user_id=?').run(id),
     revokeUserAccess,
+    ensureClientToken,
+    resetClientToken,
     newId: () => randomUUID(),
     newClientToken: () => randomBytes(36).toString('base64url'),
     tokenHash: sha256

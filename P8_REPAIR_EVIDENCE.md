@@ -81,3 +81,39 @@ GitHub CI/image publication and the Alpine browser run must still prove:
   errors;
 - the UI calls `/substore-api/`;
 - no Sub-Store host port is exposed.
+
+## F3
+
+### F3.1-F3.7 implementation
+
+- Migration 004 adds the persistent raw client token while retaining the token
+  hash used by the public generation endpoint.
+- The first owner receives a token at creation; approved/enabled accounts
+  receive one when no active token exists.
+- `/api/me` returns only the authenticated account's current token.
+- Login restoration and page refresh rebuild the complete subscription URL.
+- Reset requires an explicit browser confirmation, revokes the old token
+  immediately and displays the new URL.
+- Existing active hash-only rows remain unchanged and return
+  `client_token_reset_required`; the UI asks for one manual reset.
+- Administrative user lists, logs, errors and history do not expose raw tokens.
+
+### Local verification
+
+Observed on 2026-07-25:
+
+- enforced local suite: PASS, 25/25;
+- migration 004 apply/reopen/idempotency assertions: PASS;
+- owner creation, member approval, authenticated isolation and manual reset:
+  PASS;
+- old-token rejection after reset: PASS;
+- database reopen preserves the token: PASS;
+- existing hash-only token is not automatically replaced: PASS;
+- repair baseline: 2 passed, 1 failed;
+- only the intentionally pending F4 component-lifecycle case still fails.
+
+### F3 remaining acceptance
+
+The Alpine replacement-image run must still prove that the displayed URL stays
+identical across refresh, logout/login, container restart, ProxyHub update and
+backup/restore, and changes only after an explicit manual reset.

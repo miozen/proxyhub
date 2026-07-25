@@ -31,10 +31,14 @@ export function createAuthRouter({ database, config, auth }) {
     }
     const now = new Date().toISOString();
     try {
-      database.prepare(`
-        INSERT INTO users(id,username,password_hash,role,status,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?)
-      `).run(auth.newId(), username, hashPassword(password), count === 0 ? 'owner' : 'member', count === 0 ? 'active' : 'pending', now, now);
+      const id = auth.newId();
+      database.transaction(() => {
+        database.prepare(`
+          INSERT INTO users(id,username,password_hash,role,status,created_at,updated_at)
+          VALUES(?,?,?,?,?,?,?)
+        `).run(id, username, hashPassword(password), count === 0 ? 'owner' : 'member', count === 0 ? 'active' : 'pending', now, now);
+        if (count === 0) auth.ensureClientToken(id);
+      })();
       return response.status(201).json({ status: count === 0 ? 'active' : 'pending' });
     } catch (error) {
       if (String(error.code).includes('CONSTRAINT')) return response.status(409).json({ error: 'username_exists' });

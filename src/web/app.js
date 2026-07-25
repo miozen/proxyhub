@@ -50,8 +50,16 @@ createApp({
       return data;
     },
     flash(text, type = 'success') { this.notice = { text, type }; setTimeout(() => { if (this.notice?.text === text) this.notice = null; }, 3500); },
+    setAuthenticatedUser(data) {
+      this.user = data.user;
+      this.csrf = data.csrf_token;
+      this.account.username = data.user.username;
+      this.generatedUrl = data.user.client_token
+        ? `${location.origin}/api/generate?token=${encodeURIComponent(data.user.client_token)}`
+        : '';
+    },
     async restore() {
-      try { const data = await this.api('/api/me'); this.user = data.user; this.csrf = data.csrf_token; this.account.username = data.user.username; await this.loadCore(); }
+      try { const data = await this.api('/api/me'); this.setAuthenticatedUser(data); await this.loadCore(); }
       catch { this.user = null; }
     },
     async authSubmit() {
@@ -59,7 +67,13 @@ createApp({
       try {
         const data = await this.api(`/api/auth/${this.authMode}`, { method: 'POST', body: this.authForm });
         if (this.authMode === 'register') { this.flash(data.status === 'active' ? 'Owner 创建成功，请登录' : '注册成功，等待审核'); this.authMode = 'login'; }
-        else { this.user = data.user; this.csrf = data.csrf_token; this.page = 'dashboard'; this.menuOpen = false; this.account.username = data.user.username; await this.loadCore(); }
+        else {
+          const current = await this.api('/api/me');
+          this.setAuthenticatedUser(current);
+          this.page = 'dashboard';
+          this.menuOpen = false;
+          await this.loadCore();
+        }
       } catch (error) { this.flash(error.message, 'error'); } finally { this.busy = false; }
     },
     async logout() { try { await this.api('/api/auth/logout', { method: 'POST' }); } finally { this.user = null; this.csrf = ''; this.page = 'dashboard'; this.menuOpen = false; } },
@@ -111,7 +125,12 @@ createApp({
     },
     async removeSubscription(sub) { if (!confirm(`删除订阅“${sub.name}”？`)) return; await this.api(`/api/subscriptions/${sub.id}`, { method: 'DELETE' }); await this.loadSubscriptions(); },
     async testSubscription(sub) { try { const data = await this.api(`/api/subscriptions/${sub.id}/test`, { method: 'POST' }); this.flash(`测试成功：${data.nodes} 个有效节点`); } catch (error) { this.flash(error.message, 'error'); } },
-    async resetToken() { const data = await this.api('/api/me/token/reset', { method: 'POST' }); this.generatedUrl = `${location.origin}/api/generate?token=${data.token}`; },
+    async resetToken() {
+      if (!confirm('确认重置客户端 Token？旧订阅地址会立即失效，所有客户端都需要改用新地址。')) return;
+      const data = await this.api('/api/me/token/reset', { method: 'POST' });
+      this.generatedUrl = `${location.origin}/api/generate?token=${encodeURIComponent(data.token)}`;
+      this.flash('客户端 Token 已重置');
+    },
     async testGeneration() { try { this.generationResult = await this.api('/api/generation/test', { method: 'POST' }); this.flash('配置生成成功'); } catch (error) { this.flash(error.message, 'error'); } },
     async createTemplate() {
       try {

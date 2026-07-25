@@ -63,7 +63,7 @@
         </section>
 
         <section v-if="page==='generation'" class="content split">
-          <div class="panel"><div class="panel-head"><div><p class="eyebrow">CLIENT TOKEN</p><h3>客户端订阅地址</h3></div></div><p class="muted">重置 Token 后旧地址立即失效。出于安全原因，Token 只显示一次。</p><div class="token-box">{{ generatedUrl || '点击下方按钮签发新的客户端 Token' }}</div><div class="actions"><button class="primary" @click="resetToken">重置 Token</button><button :disabled="!generatedUrl" @click="copy(generatedUrl)">复制地址</button></div></div>
+          <div class="panel"><div class="panel-head"><div><p class="eyebrow">CLIENT TOKEN</p><h3>客户端订阅地址</h3></div></div><p class="muted">地址会持续保留并显示，只有手动重置后才会变化；重置会使旧地址立即失效。</p><div class="token-box">{{ generatedUrl || '现有 Token 无法显示，请手动重置一次' }}</div><div class="actions"><button class="primary" @click="resetToken">重置 Token</button><button :disabled="!generatedUrl" @click="copy(generatedUrl)">复制地址</button></div></div>
           <div class="panel"><div class="panel-head"><div><p class="eyebrow">DRY RUN</p><h3>测试配置生成</h3></div></div><p class="muted">立即读取启用的订阅并展示生成摘要，不影响客户端 Token。</p><button class="primary" @click="testGeneration">开始测试</button><pre v-if="generationResult">{{ JSON.stringify(generationResult.summary, null, 2) }}</pre></div>
           <div class="panel full"><div class="panel-head"><h3>生成历史</h3></div><run-table :runs="runs"></run-table></div>
         </section>
