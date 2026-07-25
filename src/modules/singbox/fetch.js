@@ -1,34 +1,20 @@
-import dns from 'node:dns/promises';
-import net from 'node:net';
-
-function blocked(address) {
-  if (net.isIPv4(address)) {
-    const [a, b] = address.split('.').map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-  }
-  const value = address.toLowerCase();
-  return value === '::1' || value === '::' || value.startsWith('fc') ||
-    value.startsWith('fd') || value.startsWith('fe8') || value.startsWith('fe9') ||
-    value.startsWith('fea') || value.startsWith('feb');
-}
-
-export async function assertSafeUrl(value, { lookup = dns.lookup } = {}) {
+export async function assertSafeUrl(value) {
   const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('unsafe_subscription_url');
-  const addresses = await lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some(({ address }) => blocked(address))) throw new Error('unsafe_subscription_target');
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('unsafe_subscription_url');
   return url;
 }
 
 export async function fetchJsonSafe(value, {
-  timeoutMs = 10_000, maxBytes = 5_000_000, lookup = dns.lookup, fetchImpl = fetch
+  timeoutMs = 10_000, maxBytes = 5_000_000, fetchImpl = fetch, headers = {}
 } = {}) {
-  const url = await assertSafeUrl(value, { lookup });
+  const url = await assertSafeUrl(value);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(url, { signal: controller.signal, redirect: 'error', headers: { 'user-agent': 'ProxyHub/0.1' } });
+    const response = await fetchImpl(url, {
+      signal: controller.signal,
+      headers: { 'user-agent': 'ProxyHub/0.1', ...headers }
+    });
     if (!response.ok) throw new Error(`upstream_http_${response.status}`);
     const declared = Number(response.headers.get('content-length') || 0);
     if (declared > maxBytes) throw new Error('upstream_too_large');

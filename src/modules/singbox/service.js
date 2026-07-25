@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { decryptUrl } from './crypto.js';
-import { buildRegionalGroups, injectTemplate, normalizeNodes, validateTemplate } from './engine.js';
-import { fetchJsonSafe } from './fetch.js';
+import { buildRegionalGroups, countRegions, injectTemplate, normalizeNodes, rawNodes, validateTemplate } from './engine.js';
+import { assertSafeUrl, fetchJsonSafe } from './fetch.js';
 
 export const DEFAULTS = {
   regions: {
@@ -159,6 +159,32 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     return { output, summary: { subscriptions: rows.length, nodes: nodes.length, groups: groups.length, reports } };
   }
 
+  async function testSubscription(subscription) {
+    const startedAt = Date.now();
+    const name = String(subscription?.name || '').trim() || '未命名订阅';
+    try {
+      const url = await assertSafeUrl(subscription?.url);
+      url.searchParams.set('t', String(Date.now()));
+      const generationSettings = settings();
+      const payload = await fetchJson(url.toString(), {
+        timeoutMs: 10_000,
+        headers: { 'user-agent': 'Mozilla/5.0 (Clash)' }
+      });
+      const nodes = normalizeNodes(payload, generationSettings.banned_keywords);
+      return {
+        success: true,
+        name,
+        duration_ms: Date.now() - startedAt,
+        raw_nodes: rawNodes(payload).length,
+        valid_nodes: nodes.length,
+        regions: countRegions(nodes, generationSettings.region_keywords, subscription?.allowed_regions),
+        warnings: nodes.length ? [] : ['没有可用节点。']
+      };
+    } catch (error) {
+      return { success: false, name, duration_ms: Date.now() - startedAt, error: error.message };
+    }
+  }
+
   function saveRun(userId, status, summary, output, error = null) {
     const now = new Date().toISOString();
     database.prepare(`INSERT INTO generation_runs
@@ -175,7 +201,8 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     refreshTemplate,
     activateTemplate,
     settings,
-    updateSettings
+    updateSettings,
+    testSubscription
   };
 }
 

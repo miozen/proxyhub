@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { encryptUrl, decryptUrl } from './crypto.js';
-import { assertSafeUrl, fetchJsonSafe } from './fetch.js';
-import { normalizeNodes } from './engine.js';
+import { assertSafeUrl } from './fetch.js';
 
 const REGIONS = new Set(['HK', 'TW', 'SG', 'JP', 'US']);
 const cleanRegions = (value) => [...new Set((Array.isArray(value) ? value : []).filter((item) => REGIONS.has(item)))];
@@ -61,13 +60,14 @@ export function createSingboxRouter({ database, config, auth, service }) {
   router.post('/subscriptions/:id/test', auth.requireCsrf, async (request, response) => {
     const row = database.prepare('SELECT * FROM subscriptions WHERE id=? AND user_id=?').get(request.params.id, request.auth.user.id);
     if (!row) return response.status(404).json({ error: 'not_found' });
-    try {
-      const nodes = normalizeNodes(
-        await fetchJsonSafe(decryptUrl(row.url_encrypted, config.dataEncryptionKey)),
-        service.settings().banned_keywords
-      );
-      response.json({ success: true, nodes: nodes.length });
-    } catch (error) { response.status(502).json({ success: false, error: error.message }); }
+    response.json(await service.testSubscription({
+      name: row.name,
+      url: decryptUrl(row.url_encrypted, config.dataEncryptionKey),
+      allowed_regions: JSON.parse(row.allowed_regions_json)
+    }));
+  });
+  router.post('/subscription/test', auth.requireCsrf, async (request, response) => {
+    response.json(await service.testSubscription(request.body?.subscription));
   });
   router.post('/generation/test', auth.requireCsrf, async (request, response) => {
     try { response.json(await service.generate(request.auth.user)); }

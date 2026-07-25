@@ -272,6 +272,25 @@ Acceptance:
 - ProxyHub security headers remain scoped to ProxyHub routes;
 - both workflows and Alpine native backup/restore pass.
 
+### F6T - Restore original subscription URL and test behavior
+
+- Validate subscription sources only as HTTP or HTTPS URLs, matching
+  singbox-center; private, loopback and Docker-network addresses are allowed.
+- Keep the existing 10-second fetch timeout and response-size bound.
+- Restore testing for saved subscriptions and unsaved editor drafts.
+- Send the Clash user agent and a cache-busting query parameter.
+- Report duration, raw nodes, cleaned nodes, allowed-region counts, unmatched
+  nodes and no-valid-node warnings in the subscription editor.
+
+Exit:
+
+- a local Sub-Store URL can be saved and used;
+- invalid non-HTTP(S) URLs are rejected;
+- a draft can be tested without first being saved;
+- test results use the current region dictionary, cleaning expression and
+  per-subscription region authorization;
+- user isolation, Session and CSRF behavior remain unchanged.
+
 ## 3. Commit boundaries
 
 ```text

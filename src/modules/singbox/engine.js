@@ -31,8 +31,12 @@ export function parseRule(value = '') {
   return match ? { mode: 'region', includeDirect: match[1].includes('+direct'), regions: match[2].split(',').map((x) => x.trim()).filter(Boolean) } : null;
 }
 
+export function rawNodes(payload) {
+  return Array.isArray(payload) ? payload : payload?.outbounds || [];
+}
+
 export function normalizeNodes(payload, bannedPattern) {
-  const input = Array.isArray(payload) ? payload : payload?.outbounds || [];
+  const input = rawNodes(payload);
   const banned = new RegExp(bannedPattern, 'i');
   const seen = new Set();
   return input.map((node) => {
@@ -45,6 +49,22 @@ export function normalizeNodes(payload, bannedPattern) {
     seen.add(tag);
     return true;
   });
+}
+
+export function countRegions(nodes, regionKeywords, allowedRegions) {
+  const regions = Object.fromEntries(Object.keys(regionKeywords || {}).map((region) => [region, 0]));
+  let unmatched = 0;
+  for (const node of nodes) {
+    const tag = String(node?.tag || '').toUpperCase();
+    const matched = Object.keys(regionKeywords || {}).some((region) => {
+      if (allowedRegions && !allowedRegions.includes(region)) return false;
+      const hit = regionKeywords[region].some((keyword) => tag.includes(String(keyword).toUpperCase()));
+      if (hit) regions[region] += 1;
+      return hit;
+    });
+    if (!matched) unmatched += 1;
+  }
+  return { ...regions, unmatched };
 }
 
 export function buildRegionalGroups(sources, regionKeywords, urltest) {

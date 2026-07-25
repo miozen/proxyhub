@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { encryptUrl, decryptUrl } from '../src/modules/singbox/crypto.js';
-import { buildRegionalGroups, injectTemplate, normalizeNodes, parseRule } from '../src/modules/singbox/engine.js';
+import { buildRegionalGroups, countRegions, injectTemplate, normalizeNodes, parseRule, rawNodes } from '../src/modules/singbox/engine.js';
 import { assertSafeUrl, fetchJsonSafe } from '../src/modules/singbox/fetch.js';
 
 test('encrypts subscription URLs with authenticated encryption', () => {
@@ -53,30 +53,40 @@ test('matches the original singbox-center core fixture', () => {
   assert.equal(output.outbounds.filter((item) => item.tag === 'HK-A').length, 1);
 });
 
-test('blocks private subscription targets', async () => {
-  await assert.rejects(() => assertSafeUrl('http://127.0.0.1/sub'), /unsafe_subscription_target/);
+test('accepts HTTP subscription targets including private addresses', async () => {
+  assert.equal((await assertSafeUrl('http://127.0.0.1/sub')).hostname, '127.0.0.1');
+  assert.equal((await assertSafeUrl('http://10.10.10.251/sub')).hostname, '10.10.10.251');
   await assert.rejects(() => assertSafeUrl('file:///etc/passwd'), /unsafe_subscription_url/);
 });
 
 test('enforces subscription timeout and response size limits', async () => {
-  const lookup = async () => [{ address: '203.0.113.10', family: 4 }];
   await assert.rejects(() => fetchJsonSafe('https://public.example/sub', {
     timeoutMs: 5,
-    lookup,
     fetchImpl: (_url, { signal }) => new Promise((_resolve, reject) => {
       signal.addEventListener('abort', () => reject(signal.reason), { once: true });
     })
   }), /abort|timed out|timeout/i);
   await assert.rejects(() => fetchJsonSafe('https://public.example/sub', {
     maxBytes: 4,
-    lookup,
     fetchImpl: async () => new Response('{"ok":true}', { headers: { 'content-length': '11' } })
   }), /upstream_too_large/);
   await assert.rejects(() => fetchJsonSafe('https://public.example/sub', {
     maxBytes: 4,
-    lookup,
     fetchImpl: async () => new Response('{"ok":true}')
   }), /upstream_too_large/);
+});
+
+test('reports raw, valid and allowed-region node counts', () => {
+  const payload = { outbounds: [
+    { type: 'vless', tag: 'HK-A' },
+    { type: 'vless', tag: 'US-A' },
+    { type: 'selector', tag: 'HK-Selector' }
+  ] };
+  const nodes = normalizeNodes(payload, 'expired');
+  assert.equal(rawNodes(payload).length, 3);
+  assert.deepEqual(countRegions(nodes, { HK: ['HK'], US: ['US'] }, ['HK']), {
+    HK: 1, US: 0, unmatched: 1
+  });
 });
 
 

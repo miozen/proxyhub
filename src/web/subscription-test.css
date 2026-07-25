@@ -1,0 +1,19 @@
+.test-report {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid #347c77;
+  border-radius: 10px;
+  background: #0b1d20;
+}
+
+.test-report.error {
+  border-color: #7a3745;
+  background: #251219;
+}
+
+.test-report p {
+  margin: 0;
+  color: var(--amber);
+}

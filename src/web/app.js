@@ -16,6 +16,7 @@ createApp({
     regionKeywordText: {},
     substore: { health: {}, backend_path: '' },
     generatedUrl: '', generationResult: null, subscriptionModal: null,
+    subscriptionTesting: false, subscriptionTestReport: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
     templateForm: { parent_id: null, source_type: 'local', source_url: '', content: '' },
     account: { username: '', currentPassword: '', newPassword: '' },
@@ -120,6 +121,7 @@ createApp({
     },
     editSubscription(sub = null) {
       this.subscriptionForm = sub ? JSON.parse(JSON.stringify(sub)) : { name: '', url: '', enabled: true, allowed_regions: ['HK', 'TW', 'SG', 'JP', 'US'] };
+      this.subscriptionTestReport = null;
       this.subscriptionModal = true;
     },
     async saveSubscription() {
@@ -130,7 +132,25 @@ createApp({
       } catch (error) { this.flash(error.message, 'error'); }
     },
     async removeSubscription(sub) { if (!confirm(`删除订阅“${sub.name}”？`)) return; await this.api(`/api/subscriptions/${sub.id}`, { method: 'DELETE' }); await this.loadSubscriptions(); },
-    async testSubscription(sub) { try { const data = await this.api(`/api/subscriptions/${sub.id}/test`, { method: 'POST' }); this.flash(`测试成功：${data.nodes} 个有效节点`); } catch (error) { this.flash(error.message, 'error'); } },
+    async testSubscription(sub) {
+      this.editSubscription(sub);
+      await this.testSubscriptionDraft();
+    },
+    async testSubscriptionDraft() {
+      if (!this.subscriptionForm.url) return this.flash('请先填写订阅 URL', 'error');
+      this.subscriptionTesting = true;
+      this.subscriptionTestReport = null;
+      try {
+        this.subscriptionTestReport = await this.api('/api/subscription/test', {
+          method: 'POST', body: { subscription: this.subscriptionForm }
+        });
+        this.flash(
+          this.subscriptionTestReport.success ? '订阅测试完成' : this.subscriptionTestReport.error,
+          this.subscriptionTestReport.success ? 'success' : 'error'
+        );
+      } catch (error) { this.flash(error.message, 'error'); }
+      finally { this.subscriptionTesting = false; }
+    },
     async resetToken() {
       if (!confirm('确认重置客户端 Token？旧订阅地址会立即失效，所有客户端都需要改用新地址。')) return;
       const data = await this.api('/api/me/token/reset', { method: 'POST' });

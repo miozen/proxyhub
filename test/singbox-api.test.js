@@ -45,9 +45,20 @@ test('creates template and subscription then generates config by client token', 
   await call(base, `/api/admin/templates/${result.body.id}/activate`, { method: 'POST', headers });
 
   result = await call(base, '/api/subscriptions', { method: 'POST', headers, body: {
-    name: 'Airport', url: 'https://example.com/sub.json', allowed_regions: ['HK']
+    name: 'Airport', url: 'http://10.10.10.251/sub.json', allowed_regions: ['HK']
   } });
   assert.equal(result.response.status, 201);
+
+  result = await call(base, '/api/subscription/test', { method: 'POST', headers, body: {
+    subscription: { name: 'Draft', url: 'http://127.0.0.1/sub.json', allowed_regions: ['HK'] }
+  } });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.success, true);
+  assert.equal(result.body.name, 'Draft');
+  assert.equal(result.body.raw_nodes, 2);
+  assert.equal(result.body.valid_nodes, 2);
+  assert.equal(result.body.regions.HK, 0);
+  assert.equal(result.body.regions.unmatched, 2);
 
   result = await call(base, '/api/admin/singbox-settings', {
     method: 'PUT',

@@ -320,3 +320,18 @@ The gateway now follows the original panel model:
 
 ProxyHub retains only owner entry authorization, health, random-path
 show/copy/reset and host-side component lifecycle commands.
+
+## F6T - original subscription URL and single-source testing
+
+The URL policy now matches singbox-center: a source must be a syntactically
+valid HTTP or HTTPS URL, while private, loopback and Docker-network targets are
+allowed. Timeout and response-size limits remain fetch safeguards rather than
+address-policy machinery.
+
+The shared test path accepts either a persisted user-owned subscription or an
+unsaved editor draft. It adds a cache-busting query parameter, uses the Clash
+user agent, applies the current cleaning expression and region dictionary, and
+returns duration, raw/valid counts, allowed-region counts, unmatched count and
+warnings. The editor displays the structured report before saving.
+
+Local enforced suite after F6T: PASS, 29/29. `git diff --check`: PASS.
