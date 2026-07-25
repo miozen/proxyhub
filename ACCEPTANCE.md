@@ -288,6 +288,15 @@ Security closure implemented:
 - Docker network/port assertions and Debian/Ubuntu runtime matrix;
 - `SECURITY.md` and `OPERATIONS.md` recovery guidance.
 
+First image scan result:
+
+- Grype found High/Critical packages inside the base image's global npm CLI;
+- application `npm audit` remained clean and the reported versions were absent
+  from the application lockfile;
+- npm/npx/Corepack are removed from the final runtime stage because ProxyHub
+  starts directly with Node.js;
+- no vulnerability ignore rule or severity downgrade was introduced.
+
 P7 remains `IN_PROGRESS` pending workflows and explicit user confirmation.
 
 
