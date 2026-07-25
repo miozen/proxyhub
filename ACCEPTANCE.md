@@ -270,11 +270,11 @@ Local evidence on 2026-07-25:
 
 | Gate | State | Evidence |
 |---|---|---|
-| P7.A1 automated matrix | PENDING | security/limits/platform/container jobs added; await CI |
-| P7.A2 Debian and Ubuntu | PENDING | Debian 12 plus Ubuntu 22.04/24.04 workflow added |
-| P7.A3 no critical/high vulnerability | PENDING | npm audit and Anchore image scan added |
+| P7.A1 automated matrix | PASS | 22/22 tests plus security, limits, Docker lifecycle and workflow checks are green |
+| P7.A2 Debian and Ubuntu | PASS | Debian 12 and Ubuntu 22.04/24.04 jobs are green |
+| P7.A3 no critical/high vulnerability | PASS | npm audit reports 0; Anchore High/Critical gate is green after runtime npm removal |
 | P7.A4 recovery guide executed | PENDING | Docker recovery exercise exists; final VM execution remains P8 |
-| P7.A5 user security/test closure | PENDING | requires prior gates and explicit confirmation |
+| P7.A5 user security/test closure | PASS | user confirmed both workflows green and authorized the next phase on 2026-07-25 |
 
 Security closure implemented:
 
@@ -297,7 +297,30 @@ First image scan result:
   starts directly with Node.js;
 - no vulnerability ignore rule or severity downgrade was introduced.
 
-P7 remains `IN_PROGRESS` pending workflows and explicit user confirmation.
+P7 state: `CODE_COMPLETE`. P7.A4 is intentionally executed on the P8 target
+host, so P7 is not yet accepted.
+
+## R8 - P8 dev deployment evidence
+
+P8 started on 2026-07-25 after both P7 workflows passed. Use an immutable
+`dev-<sha>` GHCR image throughout a complete run; if a defect is fixed, restart
+the affected evidence with the replacement SHA and record both versions.
+
+| Task | State | Required evidence |
+|---|---|---|
+| P8.1 exact SHA deployment | PENDING | target OS, Docker/Compose versions, image digest and startup output |
+| P8.2 first install/owner | PENDING | clean install, health and owner initialization |
+| P8.3 account workflow | PENDING | registration, approval, login, rename, password and disable/restore |
+| P8.4 sing-box workflow | PENDING | source test, generation, token URL and cached-failure behavior |
+| P8.5 Sub-Store workflow | PENDING | owner-only UI/API, health, manual and scheduled sync |
+| P8.6 restart/recovery | PENDING | restart and simulated power-loss persistence; closes P0 VM gates |
+| P8.7 backup/restore | PENDING | backup artifact and restored ProxyHub/Sub-Store state |
+| P8.8 ProxyHub update/rollback | PENDING | successful update plus injected failure rollback |
+| P8.9 Sub-Store update/rollback | PENDING | successful update plus injected failure rollback |
+| P8.10 evidence record | PENDING | exact commands, versions, results and defects |
+
+P8 state: `IN_PROGRESS`. P9 remains blocked until all P8 gates pass and the user
+explicitly accepts the dev deployment.
 
 
 

@@ -62,8 +62,8 @@ phase numbers. Existing commits remain valid, but are reassigned below.
 | P4 | ACCEPTED | unified Vue dashboard/navigation | accepted 2026-07-25 |
 | P5 | ACCEPTED | owner proxy, health, sync scheduler/history | accepted 2026-07-25 |
 | P6 | CODE_COMPLETE | host lifecycle, backup/update/rollback command | real VM evidence deferred to P8 |
-| P7 | IN_PROGRESS | test/security baseline | full final matrix and security closure |
-| P8 | NOT_STARTED | dev images publish automatically | real dev deployment acceptance |
+| P7 | CODE_COMPLETE | test/security matrix, platform CI and vulnerability gates | recovery guide VM execution deferred to P8 |
+| P8 | IN_PROGRESS | immutable dev images and acceptance procedure | P8.1-P8.10 real-host evidence |
 | P9 | NOT_STARTED | none | PR/release only by explicit approval |
 
 Existing commit mapping:
@@ -399,9 +399,10 @@ R5  finish and accept P5
 R6  start P6 only after P0-P5 are accepted
 ```
 
-Current checkpoint: `R6` code complete with green workflows; its VM gates remain
-deferred to P8. P7 is active and limited to P7.1-P7.14. This recorded sequence
-exception does not mark P0 or P6 accepted and does not relax their VM gates.
+Current checkpoint: `R7` code complete with both workflows green. P7.A1-P7.A3
+and P7.A5 pass; P7.A4 recovery execution remains deferred to the P8 target host.
+P8 is active and limited to P8.1-P8.10. This recorded sequence exception does
+not mark P0, P6 or P7 accepted and does not relax their VM gates.
 
 
 
