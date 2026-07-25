@@ -87,7 +87,7 @@ Local evidence on 2026-07-25:
 | P2.A3 configurable cache fallback | PASS | enabled returns stale success; disabled returns 502 |
 | P2.A4 cross-user isolation | PASS | output/read/update isolation assertions |
 | P2.A5 SSRF/timeout/size bounds | PASS | private target, abort and declared/streamed size tests |
-| P2.A6 workflows green | PENDING | record after R2 commit workflows finish |
+| P2.A6 workflows green | PASS | R2 commit `bcd4fd7`, check `#10`, both workflows green |
 
 Compatibility corrections made during R2:
 
@@ -97,7 +97,14 @@ Compatibility corrections made during R2:
 - remove invalid generated outbound/DNS references;
 - preserve arbitrary direct outbound tag used by the active template.
 
-P2 remains `IN_PROGRESS` until P2.A6 passes and the user explicitly accepts it.
+P2 state: `ACCEPTED` on 2026-07-25 after 17/17 local tests, green CI and
+explicit user confirmation.
+
+## Next checkpoint
+
+R2 is complete. R3 is limited to P3.1-P3.11 template management and its
+acceptance gates. No P4/P5 work may be mixed into R3.
+
 
 
 
