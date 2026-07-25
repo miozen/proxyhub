@@ -185,6 +185,8 @@ Local evidence on 2026-07-25:
 - `git diff --check`: PASS.
 - Docker runtime: unavailable (`docker` executable not installed).
 - upstream image selected: `xream/sub-store:2.36.21`.
+- first R5 Docker run exposed bind-mount write risk and missing failure-step
+  environment; named volumes and job-level CI secrets now cover both cases.
 
 | Gate | State | Evidence |
 |---|---|---|
@@ -208,6 +210,8 @@ Implementation evidence:
 - success/error history persists in SQLite;
 - stale running jobs are closed as interrupted after restart;
 - official image is configurable and defaults to fixed tag `2.36.21`;
+- Docker-managed named volumes preserve data while allowing the non-root
+  ProxyHub image to initialize SQLite safely;
 - Compose exposes internal ports only and mounts no Docker socket.
 
 P5 remains `IN_PROGRESS`. P5.A2, P5.A3, P5.A6 require Docker evidence and
