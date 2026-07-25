@@ -2,7 +2,14 @@
 
 ```sh
 proxyhub status
+proxyhub status proxyhub
+proxyhub status sub-store
 proxyhub logs
+proxyhub logs proxyhub --tail=100
+proxyhub logs sub-store -f
+proxyhub start proxyhub
+proxyhub stop sub-store
+proxyhub restart sub-store
 proxyhub backup
 proxyhub restore /path/to/backup
 ```
@@ -15,8 +22,18 @@ proxyhub update --proxyhub-image ghcr.io/vonzhen/proxyhub:<version>
 proxyhub update --substore-image xream/sub-store:<version> --confirm-substore
 ```
 
-Updates create a rollback point and automatically restore it when pull, recreate or
-health checks fail. Manual recovery uses `proxyhub rollback`.
+Each update snapshots, pulls and recreates only the selected component. Updating
+ProxyHub does not pull, stop or recreate Sub-Store, and vice versa. Updates create
+independent rollback points and automatically restore the selected component when
+pull, recreate or health checks fail. Manual recovery uses:
+
+```sh
+proxyhub rollback proxyhub
+proxyhub rollback sub-store
+```
+
+`rollback` requires a component. Full `backup` and `restore` continue to stop and
+recover both services together.
 
 `proxyhub uninstall` removes containers but retains `.env`, backups and volumes.
 Permanent deletion requires:

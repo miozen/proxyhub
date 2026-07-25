@@ -53,16 +53,36 @@ jobs:
           backup_path="$(/tmp/proxyhub backup ci-smoke)"
           test -s "$backup_path/proxyhub-data.tgz"
           test -s "$backup_path/substore-data.tgz"
+          proxyhub_id="$(docker compose ps -q proxyhub)"
+          substore_id="$(docker compose ps -q sub-store)"
+          /tmp/proxyhub restart proxyhub
+          test "$(docker compose ps -q sub-store)" = "$substore_id"
+          /tmp/proxyhub restart sub-store
+          test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
+          /tmp/proxyhub status proxyhub
+          /tmp/proxyhub status sub-store
+          if /tmp/proxyhub start unknown; then
+            echo "Invalid component unexpectedly succeeded"
+            exit 1
+          fi
+          substore_id="$(docker compose ps -q sub-store)"
           if /tmp/proxyhub update --proxyhub-image invalid.invalid/proxyhub:missing; then
             echo "Injected update failure unexpectedly succeeded"
             exit 1
           fi
+          test "$(docker compose ps -q sub-store)" = "$substore_id"
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          proxyhub_id="$(docker compose ps -q proxyhub)"
           if /tmp/proxyhub update --substore-image invalid.invalid/sub-store:missing --confirm-substore; then
             echo "Injected Sub-Store update failure unexpectedly succeeded"
             exit 1
           fi
+          test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          if /tmp/proxyhub rollback; then
+            echo "Component-less rollback unexpectedly succeeded"
+            exit 1
+          fi
           /tmp/proxyhub uninstall
           docker volume inspect proxyhub-data proxyhub-substore-data
           if PROXYHUB_PURGE_CONFIRM=NO /tmp/proxyhub uninstall --purge; then

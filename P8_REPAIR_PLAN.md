@@ -1,6 +1,6 @@
 # P8 Repair Plan
 
-Status: F1-F3 implemented; F2/F3 await Alpine acceptance; F4-F6 require explicit phase start
+Status: F1-F4 implemented; F2-F4 await Alpine acceptance; F5-F6 require explicit phase start
 Branch: `dev` only  
 Baseline runtime: `dev-b4ca063`  
 Scope: defects and behavior gaps found during Alpine P8 acceptance

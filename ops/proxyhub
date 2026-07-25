@@ -29,6 +29,66 @@ health() {
   done
   return 1
 }
+component_health() {
+  component=$1
+  if [ "$component" = proxyhub ]; then
+    health
+    return
+  fi
+  i=0
+  while [ "$i" -lt 45 ]; do
+    if dc exec -T sub-store node -e \
+      "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))" \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1)); sleep 2
+  done
+  return 1
+}
+validate_component() {
+  case "${1:-}" in
+    proxyhub|sub-store) ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_service() {
+  validate_component "$1"
+  echo "$1"
+}
+component_volume() {
+  case "$1" in
+    proxyhub) volume_name 1 ;;
+    sub-store) volume_name 2 ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_archive_name() {
+  case "$1" in
+    proxyhub) echo proxyhub-data.tgz ;;
+    sub-store) echo substore-data.tgz ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_env_key() {
+  case "$1" in
+    proxyhub) echo PROXYHUB_IMAGE ;;
+    sub-store) echo SUBSTORE_IMAGE ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_default_image() {
+  case "$1" in
+    proxyhub) echo ghcr.io/vonzhen/proxyhub:dev ;;
+    sub-store) echo xream/sub-store:2.36.21 ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+get_env() {
+  key=$1 default=$2
+  value=$(sed -n "s/^${key}=//p" "$ENV_FILE" | tail -1)
+  printf '%s\n' "${value:-$default}"
+}
 volume_name() {
   case "$1" in
     1) echo proxyhub-data ;;
@@ -99,6 +159,39 @@ restore_cmd() {
   dc up -d
   health || die "restore health check failed"
 }
+component_backup_cmd() {
+  component=$1 name=$2
+  validate_component "$component"
+  mkdir -p "$BACKUP_DIR"
+  target="$BACKUP_DIR/$name"; mkdir -p "$target"
+  key=$(component_env_key "$component")
+  get_env "$key" "$(component_default_image "$component")" >"$target/image"
+  service=$(component_service "$component")
+  running=$(dc ps -q "$service")
+  [ -z "$running" ] || dc stop "$service"
+  failed=false
+  archive_volume "$(component_volume "$component")" \
+    "$target/$(component_archive_name "$component")" || failed=true
+  if [ -n "$running" ]; then
+    dc start "$service" || failed=true
+    component_health "$component" || failed=true
+  fi
+  [ "$failed" = false ] || die "$component backup failed"
+  echo "$target"
+}
+component_restore_cmd() {
+  component=$1 target=$2
+  validate_component "$component"
+  archive="$target/$(component_archive_name "$component")"
+  [ -f "$archive" ] && [ -f "$target/image" ] || die "invalid $component backup"
+  service=$(component_service "$component")
+  key=$(component_env_key "$component")
+  dc stop "$service"
+  restore_volume "$(component_volume "$component")" "$archive"
+  set_env "$key" "$(cat "$target/image")"
+  dc up -d --no-deps "$service"
+  component_health "$component" || die "$component restore health check failed"
+}
 update_cmd() {
   ensure_env
   proxy_image= substore_image= confirm=false
@@ -111,21 +204,40 @@ update_cmd() {
     esac
   done
   [ -n "$proxy_image$substore_image" ] || die "an image option is required"
+  [ -z "$proxy_image" ] || [ -z "$substore_image" ] || die "update one component at a time"
   [ -z "$substore_image" ] || [ "$confirm" = true ] || die "Sub-Store update requires --confirm-substore"
-  snapshot=$(backup_cmd "pre-update-$(now)")
-  mkdir -p "$STATE_DIR"; printf '%s\n' "$snapshot" >"$STATE_DIR/last-backup"
-  [ -z "$proxy_image" ] || set_env PROXYHUB_IMAGE "$proxy_image"
-  [ -z "$substore_image" ] || set_env SUBSTORE_IMAGE "$substore_image"
-  if ! dc pull || ! dc up -d || ! health; then
-    echo "Update failed; rolling back" >&2
-    restore_cmd "$snapshot"
+  if [ -n "$proxy_image" ]; then
+    component=proxyhub; image=$proxy_image
+  else
+    component=sub-store; image=$substore_image
+  fi
+  snapshot=$(component_backup_cmd "$component" "pre-update-$component-$(now)")
+  mkdir -p "$STATE_DIR"
+  printf '%s\n' "$snapshot" >"$STATE_DIR/$component-last-backup"
+  set_env "$(component_env_key "$component")" "$image"
+  update_failed=false
+  if [ "$component" = proxyhub ]; then
+    dc pull proxyhub &&
+      dc up -d --no-deps proxyhub &&
+      component_health proxyhub || update_failed=true
+  else
+    dc pull sub-store &&
+      dc up -d --no-deps sub-store &&
+      component_health sub-store || update_failed=true
+  fi
+  if [ "$update_failed" = true ]; then
+    echo "$component update failed; rolling back" >&2
+    component_restore_cmd "$component" "$snapshot"
     return 1
   fi
-  echo "Update successful. Rollback point: $snapshot"
+  echo "$component update successful. Rollback point: $snapshot"
 }
 rollback_cmd() {
-  [ -f "$STATE_DIR/last-backup" ] || die "no rollback point"
-  restore_cmd "$(cat "$STATE_DIR/last-backup")"
+  component=${1:-}
+  validate_component "$component"
+  state="$STATE_DIR/$component-last-backup"
+  [ -f "$state" ] || die "no $component rollback point"
+  component_restore_cmd "$component" "$(cat "$state")"
 }
 check_updates_cmd() {
   ensure_env
@@ -151,21 +263,45 @@ uninstall_cmd() {
     echo "Containers removed; volumes, .env and backups retained."
   fi
 }
+lifecycle_cmd() {
+  action=$1; shift
+  component=${1:-}
+  if [ -z "$component" ]; then
+    case "$action" in
+      start) dc up -d ;;
+      stop|restart) dc "$action" ;;
+      status) dc ps ;;
+    esac
+    return
+  fi
+  [ "$#" -eq 1 ] || die "$action accepts at most one component"
+  validate_component "$component"
+  case "$action" in
+    start) dc up -d --no-deps "$component" ;;
+    stop|restart) dc "$action" "$component" ;;
+    status) dc ps "$component" ;;
+  esac
+}
+logs_cmd() {
+  component=${1:-}
+  case "$component" in
+    proxyhub|sub-store) shift; dc logs "$@" "$component" ;;
+    ''|-*) dc logs "$@" ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
 
 command=${1:-help}; shift || true
 case "$command" in
   install) install_cmd "$@" ;;
-  start) ensure_env; dc up -d ;;
-  stop) ensure_env; dc stop ;;
-  restart) ensure_env; dc restart ;;
-  status) ensure_env; dc ps ;;
-  logs) ensure_env; dc logs "$@" ;;
+  start|stop|restart|status) ensure_env; lifecycle_cmd "$command" "$@" ;;
+  logs) ensure_env; logs_cmd "$@" ;;
   backup) backup_cmd "${1:-}" ;;
   restore) restore_cmd "${1:-}" ;;
   update) update_cmd "$@" ;;
   check-updates) check_updates_cmd "$@" ;;
-  rollback) rollback_cmd ;;
+  rollback) rollback_cmd "$@" ;;
   uninstall) uninstall_cmd "$@" ;;
-  help|-h|--help) echo "Usage: proxyhub {install|start|stop|restart|status|logs|backup|restore|check-updates|update|rollback|uninstall}" ;;
+  help|-h|--help) echo "Usage: proxyhub {install|start|stop|restart|status|logs|backup|restore|check-updates|update|rollback|uninstall} [proxyhub|sub-store]" ;;
   *) die "unknown command: $command" ;;
 esac

@@ -20,6 +20,10 @@ install start stop restart status logs
 backup restore check-updates update rollback uninstall
 ```
 
+`start`, `stop`, `restart`, `status` and `logs` accept an optional `proxyhub` or
+`sub-store` component. Updates and rollbacks are always component-scoped; see
+`OPERATIONS.md`.
+
 `uninstall` retains volumes and configuration. Purging requires both
 `uninstall --purge` and `PROXYHUB_PURGE_CONFIRM=DELETE`. Sub-Store updates
 require `--confirm-substore`. Automatic updates are disabled by default.

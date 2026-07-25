@@ -117,3 +117,44 @@ Observed on 2026-07-25:
 The Alpine replacement-image run must still prove that the displayed URL stays
 identical across refresh, logout/login, container restart, ProxyHub update and
 backup/restore, and changes only after an explicit manual reset.
+
+## F4
+
+### F4.1-F4.7 implementation
+
+- `start`, `stop`, `restart` and `status` accept no component for the complete
+  stack or exactly one of `proxyhub` and `sub-store`.
+- `logs` accepts the same optional component and retains Compose log options.
+- ProxyHub update explicitly runs `pull proxyhub` and
+  `up -d --no-deps proxyhub`; Sub-Store uses the equivalent `sub-store`
+  commands.
+- Each component update snapshots only its own named volume and current image
+  setting.
+- Rollback points and restore paths are independent for both components.
+- ProxyHub and Sub-Store have separate post-update health checks.
+- Full backup/restore and uninstall behavior remains unchanged.
+- Component-less rollback and unknown components fail before Docker mutation.
+
+### Local verification
+
+Observed on 2026-07-25:
+
+- enforced local suite: PASS, 27/27;
+- Git Bash POSIX syntax check: PASS;
+- `git diff --check`: PASS;
+- repair baseline: PASS, 3/3;
+- static isolation, rollback-point and validation assertions: PASS.
+
+### CI and Alpine verification
+
+The Docker workflow now records both container IDs, independently restarts
+each service, injects both component update failures, and asserts that the
+other component ID stays unchanged. Alpine F6 must repeat successful update
+and rollback with fixed replacement images and record container IDs, start
+times and data persistence.
+
+## Deferred web operations
+
+`POST_V1_PLAN.md` records owner web control as a post-v1 feature using a
+restricted host-side agent. F4 does not mount the Docker socket or add web
+container controls.
