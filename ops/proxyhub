@@ -1,0 +1,163 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ENV_FILE="$ROOT/.env"
+STATE_DIR="$ROOT/.proxyhub"
+BACKUP_DIR="$ROOT/backups"
+
+die() { echo "proxyhub: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
+dc() { docker compose --project-directory "$ROOT" "$@"; }
+now() { date -u +%Y%m%dT%H%M%SZ; }
+ensure_env() { [ -f "$ENV_FILE" ] || die "missing .env; run: proxyhub install"; }
+health() {
+  port=$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)
+  port=${port:-3000}
+  i=0
+  while [ "$i" -lt 45 ]; do
+    wget -qO- "http://127.0.0.1:$port/healthz" >/dev/null 2>&1 && return 0
+    i=$((i + 1)); sleep 2
+  done
+  return 1
+}
+volume_name() {
+  case "$1" in
+    1) echo proxyhub-data ;;
+    2) echo proxyhub-substore-data ;;
+    *) die "unknown volume index" ;;
+  esac
+}
+archive_volume() {
+  volume=$1 output=$2
+  docker run --rm -v "$volume:/source:ro" -v "$(dirname "$output"):/backup" alpine:3.22 \
+    sh -c "cd /source && tar czf /backup/$(basename "$output") ."
+}
+restore_volume() {
+  volume=$1 input=$2
+  docker run --rm -v "$volume:/target" -v "$(dirname "$input"):/backup:ro" alpine:3.22 \
+    sh -c "find /target -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar xzf /backup/$(basename "$input") -C /target"
+}
+set_env() {
+  key=$1 value=$2 tmp="$ENV_FILE.tmp"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found=0 } $0 ~ ("^" key "=") { print key "=" value; found=1; next }
+    { print } END { if (!found) print key "=" value }
+  ' "$ENV_FILE" >"$tmp"
+  mv "$tmp" "$ENV_FILE"
+}
+
+install_cmd() {
+  need docker
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+  if [ ! -f "$ENV_FILE" ]; then
+    need openssl
+    cp "$ROOT/.env.example" "$ENV_FILE"
+    set_env SESSION_SECRET "$(openssl rand -hex 32)"
+    set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)"
+    set_env PROXYHUB_IMAGE "ghcr.io/vonzhen/proxyhub:dev"
+    set_env AUTO_UPDATE_ENABLED "false"
+    chmod 600 "$ENV_FILE"
+  fi
+  dc pull
+  dc up -d
+  health || { dc logs proxyhub; die "health check failed"; }
+  echo "ProxyHub installed at http://127.0.0.1:$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)"
+}
+backup_cmd() {
+  ensure_env; mkdir -p "$BACKUP_DIR"
+  name=${1:-"proxyhub-$(now)"}
+  target="$BACKUP_DIR/$name"; mkdir -p "$target"
+  cp "$ENV_FILE" "$target/env"
+  running=$(dc ps -q)
+  [ -z "$running" ] || dc stop
+  failed=false
+  archive_volume "$(volume_name 1)" "$target/proxyhub-data.tgz" || failed=true
+  archive_volume "$(volume_name 2)" "$target/substore-data.tgz" || failed=true
+  if [ -n "$running" ]; then
+    dc start
+    health || failed=true
+  fi
+  [ "$failed" = false ] || die "backup failed"
+  echo "$target"
+}
+restore_cmd() {
+  ensure_env; target=${1:-}; [ -d "$target" ] || die "backup directory required"
+  [ -f "$target/proxyhub-data.tgz" ] && [ -f "$target/substore-data.tgz" ] || die "invalid backup"
+  dc down
+  restore_volume "$(volume_name 1)" "$target/proxyhub-data.tgz"
+  restore_volume "$(volume_name 2)" "$target/substore-data.tgz"
+  cp "$target/env" "$ENV_FILE"
+  dc up -d
+  health || die "restore health check failed"
+}
+update_cmd() {
+  ensure_env
+  proxy_image= substore_image= confirm=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --proxyhub-image) proxy_image=${2:-}; shift 2 ;;
+      --substore-image) substore_image=${2:-}; shift 2 ;;
+      --confirm-substore) confirm=true; shift ;;
+      *) die "unknown update option: $1" ;;
+    esac
+  done
+  [ -n "$proxy_image$substore_image" ] || die "an image option is required"
+  [ -z "$substore_image" ] || [ "$confirm" = true ] || die "Sub-Store update requires --confirm-substore"
+  snapshot=$(backup_cmd "pre-update-$(now)")
+  mkdir -p "$STATE_DIR"; printf '%s\n' "$snapshot" >"$STATE_DIR/last-backup"
+  [ -z "$proxy_image" ] || set_env PROXYHUB_IMAGE "$proxy_image"
+  [ -z "$substore_image" ] || set_env SUBSTORE_IMAGE "$substore_image"
+  if ! dc pull || ! dc up -d || ! health; then
+    echo "Update failed; rolling back" >&2
+    restore_cmd "$snapshot"
+    return 1
+  fi
+  echo "Update successful. Rollback point: $snapshot"
+}
+rollback_cmd() {
+  [ -f "$STATE_DIR/last-backup" ] || die "no rollback point"
+  restore_cmd "$(cat "$STATE_DIR/last-backup")"
+}
+check_updates_cmd() {
+  ensure_env
+  proxy_image=${1:-}; substore_image=${2:-}
+  [ -n "$proxy_image$substore_image" ] || die "candidate image required"
+  [ -z "$proxy_image" ] || {
+    docker manifest inspect "$proxy_image" >/dev/null
+    echo "ProxyHub candidate available: $proxy_image"
+  }
+  [ -z "$substore_image" ] || {
+    docker manifest inspect "$substore_image" >/dev/null
+    echo "Sub-Store candidate available: $substore_image (manual confirmation required)"
+  }
+}
+uninstall_cmd() {
+  purge=false; [ "${1:-}" != "--purge" ] || purge=true
+  if [ "$purge" = true ]; then
+    [ "${PROXYHUB_PURGE_CONFIRM:-}" = "DELETE" ] || die "set PROXYHUB_PURGE_CONFIRM=DELETE to purge"
+    dc down --volumes --remove-orphans
+    rm -f "$ENV_FILE"
+  else
+    dc down --remove-orphans
+    echo "Containers removed; volumes, .env and backups retained."
+  fi
+}
+
+command=${1:-help}; shift || true
+case "$command" in
+  install) install_cmd "$@" ;;
+  start) ensure_env; dc up -d ;;
+  stop) ensure_env; dc stop ;;
+  restart) ensure_env; dc restart ;;
+  status) ensure_env; dc ps ;;
+  logs) ensure_env; dc logs "$@" ;;
+  backup) backup_cmd "${1:-}" ;;
+  restore) restore_cmd "${1:-}" ;;
+  update) update_cmd "$@" ;;
+  check-updates) check_updates_cmd "$@" ;;
+  rollback) rollback_cmd ;;
+  uninstall) uninstall_cmd "$@" ;;
+  help|-h|--help) echo "Usage: proxyhub {install|start|stop|restart|status|logs|backup|restore|check-updates|update|rollback|uninstall}" ;;
+  *) die "unknown command: $command" ;;
+esac

@@ -20,6 +20,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run ci
+      - name: Validate operations command
+        run: sh -n ops/proxyhub
 
   docker:
     runs-on: ubuntu-latest
@@ -38,10 +40,35 @@ jobs:
         run: docker compose config --quiet
       - name: Run pinned Sub-Store integration smoke
         run: |
+          cp .env.example .env
           docker compose up -d --build
           node scripts/p5-compose-smoke.js
           substore_id="$(docker compose ps -q sub-store)"
           test "$(docker inspect "$substore_id" --format '{{len .HostConfig.PortBindings}}')" = "0"
+      - name: Exercise backup and failed-update rollback
+        run: |
+          chmod +x ops/proxyhub
+          backup_path="$(ops/proxyhub backup ci-smoke)"
+          test -s "$backup_path/proxyhub-data.tgz"
+          test -s "$backup_path/substore-data.tgz"
+          if ops/proxyhub update --proxyhub-image invalid.invalid/proxyhub:missing; then
+            echo "Injected update failure unexpectedly succeeded"
+            exit 1
+          fi
+          P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          if ops/proxyhub update --substore-image invalid.invalid/sub-store:missing --confirm-substore; then
+            echo "Injected Sub-Store update failure unexpectedly succeeded"
+            exit 1
+          fi
+          P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          ops/proxyhub uninstall
+          docker volume inspect proxyhub-data proxyhub-substore-data
+          if PROXYHUB_PURGE_CONFIRM=NO ops/proxyhub uninstall --purge; then
+            echo "Purge without exact confirmation unexpectedly succeeded"
+            exit 1
+          fi
+          ops/proxyhub start
+          P5_EXISTING=1 node scripts/p5-compose-smoke.js
       - name: Show Compose logs on failure
         if: failure()
         run: docker compose logs

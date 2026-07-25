@@ -24,6 +24,12 @@ async function json(route, options = {}) {
 }
 
 await ready();
+if (process.env.P5_EXISTING === '1') {
+  const response = await fetch(`${base}/substore/`);
+  assert.equal(response.status, 401);
+  console.log('P5 existing-install smoke passed');
+  process.exit(0);
+}
 const username = `smoke-${Date.now()}`;
 let result = await json('/api/auth/register', {
   method: 'POST', body: { username, password: 'compose-smoke-password-123' }

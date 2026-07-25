@@ -50,7 +50,9 @@ networks:
 
 volumes:
   proxyhub-data:
+    name: proxyhub-data
   substore-data:
+    name: proxyhub-substore-data
 
 
 

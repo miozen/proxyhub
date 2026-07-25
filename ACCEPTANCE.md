@@ -226,6 +226,40 @@ R5 is complete. R6 is limited to P6.1-P6.14 installation, lifecycle, backup,
 update and rollback work. P0 real-machine gates remain deferred to P8 by the
 user; they are not treated as accepted or removed.
 
+## R6 - P6 evidence
+
+Local evidence on 2026-07-25:
+
+- shell syntax check: PASS.
+- Node syntax and complete test suite: PASS, 20/20.
+- `git diff --check`: PASS.
+- local Docker runtime: unavailable; lifecycle exercise runs in GitHub Docker CI.
+
+| Gate | State | Evidence |
+|---|---|---|
+| P6.A1 clean install/all commands | PENDING | command syntax passes; clean VM exercise remains for P8 |
+| P6.A2 backup/restore both stores | PENDING | real named-volume archive/restore CI added |
+| P6.A3 ProxyHub failure rollback | PENDING | invalid registry image fault injection CI added |
+| P6.A4 Sub-Store failure rollback | PENDING | confirmed invalid Sub-Store image fault injection CI added |
+| P6.A5 uninstall/purge semantics | PENDING | preserve-volume and refused-unconfirmed-purge CI added |
+| P6.A6 workflows green | PENDING | record after R6 commit workflows finish |
+
+Implementation evidence:
+
+- `ops/proxyhub` is installation-side and exposes only fixed lifecycle commands;
+- secrets are generated during first install and `.env` is mode 0600;
+- backups archive both named volumes plus the active environment;
+- update snapshots data and image settings before pull/recreate/health;
+- failed updates automatically restore the snapshot;
+- Sub-Store image changes require `--confirm-substore`;
+- `check-updates` is notify-only and does not mutate containers;
+- automatic updates default to disabled;
+- uninstall preserves data; purge requires `PROXYHUB_PURGE_CONFIRM=DELETE`;
+- the application has no shell endpoint and no Docker socket.
+
+P6 remains `IN_PROGRESS` until Docker CI evidence is green and remaining
+acceptance evidence is recorded.
+
 
 
 
