@@ -47,15 +47,15 @@ Match `singbox-center` behavior:
 
 Storage change:
 
-- Keep `token_hash` for request authentication and indexed lookup.
-- Add AES-256-GCM encrypted token material for authenticated display.
-- Never store the raw token in plaintext or logs.
-- Use `DATA_ENCRYPTION_KEY`; migration is idempotent.
-- Existing hash-only tokens cannot be recovered. On first login after upgrade,
-  issue one replacement token and revoke the hash-only token.
-
-This is an explicit replacement for the earlier hash-only display model. Token
-verification remains hash-based.
+- Match `singbox-center`: persist the active raw client token with the account.
+- The token remains unchanged across login, logout, restart, update and restore.
+- Only an explicit manual reset may replace it.
+- Reset deletes/revokes the old token mapping and stores the newly generated
+  token.
+- Return the token only to its authenticated account; never include it in logs,
+  errors, history or administrative user lists.
+- Existing hash-only tokens are not changed automatically. If one exists and
+  cannot be displayed, the UI asks the user to perform one manual reset.
 
 ### 1.4 Independent container operations
 
@@ -122,11 +122,11 @@ Exit:
 - ProxyHub navigation remains available in the original tab;
 - no Sub-Store host port exists.
 
-### F3 - Persistent client subscription URL
+### F3 - singbox-center client subscription URL
 
-- F3.1 add encrypted-token migration and encryption helpers.
+- F3.1 add persistent account token storage matching `singbox-center`.
 - F3.2 issue a token on activation/first owner creation.
-- F3.3 migrate hash-only accounts by one-time replacement.
+- F3.3 never rotate an existing token during login, migration or startup.
 - F3.4 return the current token only to its authenticated owner.
 - F3.5 always render the full URL and copy action.
 - F3.6 reset with warning, immediate old-token revocation and refreshed URL.
@@ -135,10 +135,11 @@ Exit:
 Exit:
 
 - login and refresh preserve the displayed URL;
+- restart, update and restore preserve the same URL;
 - another user cannot read it;
 - old URL returns 401 immediately after reset;
 - new URL generates normally;
-- database contains hash plus authenticated ciphertext, never plaintext.
+- the URL changes only after an explicit manual reset.
 
 ### F4 - Component-scoped lifecycle
 
@@ -184,7 +185,7 @@ Exit: resume the normal P8 plan only after all repair gates pass.
 ```text
 test: reproduce P8 UI and lifecycle defects
 fix: open Sub-Store through an allowlisted gateway
-feat: persist encrypted client subscription tokens
+feat: restore persistent client subscription URLs
 fix: isolate component lifecycle operations
 fix: complete dashboard form metadata
 docs: record repaired Alpine acceptance
@@ -196,5 +197,5 @@ docs: record repaired Alpine acceptance
 - No direct Sub-Store host port.
 - No restored independent panel authentication or random paths.
 - No global `unsafe-inline` CSP.
-- No plaintext client-token storage.
+- No automatic client-token rotation.
 - No `master` change, PR, merge, tag or release.
