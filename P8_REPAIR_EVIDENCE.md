@@ -287,3 +287,16 @@ URL/interval/tolerance. Subscription tests and normal generation read the
 current values. API validation and member-denial coverage were added.
 
 Local enforced suite after F6R.1: PASS, 29/29.
+
+## F6R.2 - Sub-Store restore body preservation
+
+Alpine reached the official restore API but Sub-Store rejected a known backup
+with `INVALID_BACKUP_DATA`. The random backend proxy was mounted after the
+global Express JSON parser. JSON restore bodies were parsed and consumed by
+ProxyHub before the request stream was forwarded, so Sub-Store received an
+empty body.
+
+The JSON parser is now scoped to ProxyHub `/api/*` only. Requests under the
+random Sub-Store backend path remain raw streams. A proxy integration test
+asserts that a Unicode JSON backup body and its content type reach the upstream
+byte-for-byte unchanged.

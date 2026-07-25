@@ -96,6 +96,17 @@ test('owner manages Sub-Store health, sync and scheduling while members are deni
 test('F6R root frontend and resettable backend path proxy without subpath rewrites', async (context) => {
   const binary = Buffer.from(Array.from({ length: 64 * 1024 }, (_value, index) => index % 251));
   const upstream = http.createServer((request, response) => {
+    if (request.url === '/api/restore' && request.method === 'POST') {
+      const chunks = [];
+      request.on('data', (chunk) => chunks.push(chunk));
+      return request.on('end', () => {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({
+          content_type: request.headers['content-type'],
+          body: Buffer.concat(chunks).toString('utf8')
+        }));
+      });
+    }
     if (request.url === '/redirect') {
       response.statusCode = 302;
       response.setHeader('location', '/next?from=upstream');
@@ -202,6 +213,21 @@ test('F6R root frontend and resettable backend path proxy without subpath rewrit
 
   response = await fetch(`${base}${backendPath}/api/data?name=test`);
   assert.deepEqual(await response.json(), { path: '/api/data?name=test' });
+
+  const backupBody = JSON.stringify({
+    version: 2,
+    artifacts: [{ name: 'subscription', content: '保留原始备份正文' }]
+  });
+  response = await fetch(`${base}${backendPath}/api/restore`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: backupBody
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    content_type: 'application/json',
+    body: backupBody
+  });
 
   response = await fetch(`${base}${backendPath}/redirect`, { redirect: 'manual' });
   assert.equal(response.status, 302);

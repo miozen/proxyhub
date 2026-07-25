@@ -35,7 +35,7 @@ export function createApp({
     database, config, transport: substoreTransport,
     schedulerIntervalMs: substoreSchedulerIntervalMs, now: substoreNow
   });
-  app.use(express.json({ limit: '1mb' }));
+  app.use('/api', express.json({ limit: '1mb' }));
 
   app.use('/healthz', createHealthRouter({ database, config, probeSubstore }));
   app.use('/api/auth', createAuthRouter({ database, config, auth }));
