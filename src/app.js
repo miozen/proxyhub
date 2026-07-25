@@ -3,8 +3,10 @@ import { createHealthRouter } from './modules/health/routes.js';
 import { createAuth } from './modules/auth/service.js';
 import { createAuthRouter } from './modules/auth/routes.js';
 import { createUserRouter } from './modules/users/routes.js';
+import { createSingboxService } from './modules/singbox/service.js';
+import { createSingboxRouter } from './modules/singbox/routes.js';
 
-export function createApp({ config, database, probeSubstore }) {
+export function createApp({ config, database, probeSubstore, singboxFetch }) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -13,14 +15,16 @@ export function createApp({ config, database, probeSubstore }) {
 
   app.use('/healthz', createHealthRouter({ database, config, probeSubstore }));
   const auth = createAuth({ database, config });
+  const singbox = createSingboxService({ database, config, fetchJson: singboxFetch });
   app.use('/api/auth', createAuthRouter({ database, config, auth }));
+  app.use('/api', createSingboxRouter({ database, config, auth, service: singbox }));
   app.use('/api', createUserRouter({ database, config, auth }));
 
   app.get('/', (_request, response) => {
     response.json({
       name: 'ProxyHub',
       version: '0.1.0',
-      phase: 'P0'
+      phase: 'P2'
     });
   });
 
@@ -30,5 +34,6 @@ export function createApp({ config, database, probeSubstore }) {
 
   return app;
 }
+
 
 

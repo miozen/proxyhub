@@ -1,0 +1,103 @@
+import { Router } from 'express';
+import { encryptUrl, decryptUrl } from './crypto.js';
+import { assertSafeUrl, fetchJsonSafe } from './fetch.js';
+import { normalizeNodes, validateTemplate } from './engine.js';
+
+const REGIONS = new Set(['HK', 'TW', 'SG', 'JP', 'US']);
+const cleanRegions = (value) => [...new Set((Array.isArray(value) ? value : []).filter((item) => REGIONS.has(item)))];
+
+export function createSingboxRouter({ database, config, auth, service }) {
+  const router = Router();
+
+  router.get('/generate', async (request, response) => {
+    const hash = auth.tokenHash(String(request.query.token || ''));
+    const user = database.prepare(`SELECT u.* FROM client_tokens t JOIN users u ON u.id=t.user_id
+      WHERE t.token_hash=? AND t.revoked_at IS NULL`).get(hash);
+    if (!user || user.status !== 'active' || !user.generation_enabled) return response.status(401).json({ error: 'token_invalid' });
+    try {
+      const result = await service.generate(user);
+      service.saveRun(user.id, 'success', result.summary, result.output);
+      response.set('cache-control', 'no-store').json(result.output);
+    } catch (error) {
+      service.saveRun(user.id, 'error', null, null, error.message);
+      const cached = database.prepare(`SELECT config_json FROM generation_runs
+        WHERE user_id=? AND status='success' AND config_json IS NOT NULL ORDER BY finished_at DESC LIMIT 1`).get(user.id);
+      if (cached) return response.set('x-proxyhub-cache', 'stale').json(JSON.parse(cached.config_json));
+      response.status(502).json({ error: 'generation_failed' });
+    }
+  });
+
+  router.use(auth.requireUser);
+  router.get('/subscriptions', (request, response) => {
+    const rows = database.prepare('SELECT * FROM subscriptions WHERE user_id=? ORDER BY created_at').all(request.auth.user.id);
+    response.json({ subscriptions: rows.map((row) => ({ id: row.id, name: row.name, url: decryptUrl(row.url_encrypted, config.dataEncryptionKey), enabled: !!row.enabled, allowed_regions: JSON.parse(row.allowed_regions_json) })) });
+  });
+  router.post('/subscriptions', auth.requireCsrf, async (request, response) => {
+    const { name, url, enabled = true, allowed_regions: regions } = request.body || {};
+    if (!String(name || '').trim() || String(name).length > 80) return response.status(400).json({ error: 'invalid_name' });
+    try { await assertSafeUrl(url); } catch { return response.status(400).json({ error: 'invalid_url' }); }
+    const id = auth.newId();
+    const now = new Date().toISOString();
+    database.prepare(`INSERT INTO subscriptions(id,user_id,name,url_encrypted,enabled,allowed_regions_json,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?)`).run(id, request.auth.user.id, name.trim(), encryptUrl(url, config.dataEncryptionKey), enabled ? 1 : 0, JSON.stringify(cleanRegions(regions)), now, now);
+    response.status(201).json({ id });
+  });
+  router.put('/subscriptions/:id', auth.requireCsrf, async (request, response) => {
+    const current = database.prepare('SELECT * FROM subscriptions WHERE id=? AND user_id=?').get(request.params.id, request.auth.user.id);
+    if (!current) return response.status(404).json({ error: 'not_found' });
+    const url = request.body?.url || decryptUrl(current.url_encrypted, config.dataEncryptionKey);
+    try { await assertSafeUrl(url); } catch { return response.status(400).json({ error: 'invalid_url' }); }
+    database.prepare(`UPDATE subscriptions SET name=?,url_encrypted=?,enabled=?,allowed_regions_json=?,updated_at=? WHERE id=?`)
+      .run(request.body?.name || current.name, encryptUrl(url, config.dataEncryptionKey), request.body?.enabled === false ? 0 : 1, JSON.stringify(cleanRegions(request.body?.allowed_regions ?? JSON.parse(current.allowed_regions_json))), new Date().toISOString(), current.id);
+    response.json({ success: true });
+  });
+  router.delete('/subscriptions/:id', auth.requireCsrf, (request, response) => {
+    const result = database.prepare('DELETE FROM subscriptions WHERE id=? AND user_id=?').run(request.params.id, request.auth.user.id);
+    response.status(result.changes ? 200 : 404).json(result.changes ? { success: true } : { error: 'not_found' });
+  });
+  router.post('/subscriptions/:id/test', auth.requireCsrf, async (request, response) => {
+    const row = database.prepare('SELECT * FROM subscriptions WHERE id=? AND user_id=?').get(request.params.id, request.auth.user.id);
+    if (!row) return response.status(404).json({ error: 'not_found' });
+    try {
+      const nodes = normalizeNodes(await fetchJsonSafe(decryptUrl(row.url_encrypted, config.dataEncryptionKey)), '杩囨湡|鍓╀綑|缃戝潃');
+      response.json({ success: true, nodes: nodes.length });
+    } catch (error) { response.status(502).json({ success: false, error: error.message }); }
+  });
+  router.post('/generation/test', auth.requireCsrf, async (request, response) => {
+    try { response.json(await service.generate(request.auth.user)); }
+    catch (error) { response.status(502).json({ error: error.message }); }
+  });
+  router.get('/generation/status', (request, response) => {
+    response.json({ runs: database.prepare('SELECT id,status,summary_json,error_text,started_at,finished_at FROM generation_runs WHERE user_id=? ORDER BY started_at DESC LIMIT 20').all(request.auth.user.id) });
+  });
+
+  router.get('/admin/templates', auth.requireOwner, (_request, response) => response.json({
+    templates: database.prepare('SELECT id,source_type,source_url,content_hash,active,created_at FROM template_versions ORDER BY created_at DESC').all()
+  }));
+  router.post('/admin/templates', auth.requireOwner, auth.requireCsrf, async (request, response) => {
+    const remote = request.body?.source_type === 'remote';
+    let content = request.body?.content;
+    if (remote) {
+      try { content = await fetchJsonSafe(request.body?.source_url); }
+      catch (error) { return response.status(400).json({ error: error.message }); }
+    }
+    try { validateTemplate(content); } catch (error) { return response.status(400).json({ error: error.message }); }
+    const id = auth.newId();
+    database.prepare(`INSERT INTO template_versions(id,source_type,source_url,content_json,content_hash,active,created_at)
+      VALUES(?,?,?,?,?,0,?)`).run(id, remote ? 'remote' : 'local', remote ? request.body.source_url : null, JSON.stringify(content), service.hashTemplate(content), new Date().toISOString());
+    response.status(201).json({ id });
+  });
+  router.post('/admin/templates/:id/activate', auth.requireOwner, auth.requireCsrf, (request, response) => {
+    const activated = database.transaction(() => {
+      const exists = database.prepare('SELECT id FROM template_versions WHERE id=?').get(request.params.id);
+      if (!exists) return false;
+      database.prepare('UPDATE template_versions SET active=0 WHERE active=1').run();
+      database.prepare('UPDATE template_versions SET active=1 WHERE id=?').run(request.params.id);
+      return true;
+    })();
+    if (!activated) return response.status(404).json({ error: 'not_found' });
+    response.json({ success: true });
+  });
+  return router;
+}
+

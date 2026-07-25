@@ -108,3 +108,4 @@ VALUES
   ('auto_sync_interval_hours', '12', CURRENT_TIMESTAMP);
 
 
+
