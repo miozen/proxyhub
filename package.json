@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/server.js",
     "check": "node scripts/check-syntax.js",
-    "test": "node --test test",
+    "test": "node scripts/run-tests.js",
     "ci": "npm run check && npm test"
   },
   "dependencies": {
