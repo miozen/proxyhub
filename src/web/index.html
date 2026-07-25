@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>ProxyHub</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/substore.css">
   <link rel="stylesheet" href="/templates.css">
@@ -23,8 +24,8 @@
           <button type="button" :class="{active: authMode==='login'}" @click="authMode='login'">登录</button>
           <button type="button" :class="{active: authMode==='register'}" @click="authMode='register'">注册</button>
         </div>
-        <label>用户名<input v-model.trim="authForm.username" autocomplete="username" required minlength="3"></label>
-        <label>密码<input v-model="authForm.password" type="password" :autocomplete="authMode==='login'?'current-password':'new-password'" required minlength="10"></label>
+        <label for="auth-username">用户名</label><input id="auth-username" v-model.trim="authForm.username" name="username" autocomplete="username" required minlength="3">
+        <label for="auth-password">密码</label><input id="auth-password" v-model="authForm.password" name="password" type="password" :autocomplete="authMode==='login'?'current-password':'new-password'" required minlength="10">
         <button class="primary wide" :disabled="busy">{{ busy ? '处理中…' : (authMode==='login'?'进入控制台':'提交注册') }}</button>
         <p class="form-note">新用户注册后需等待 owner 审核。</p>
       </form>
@@ -76,8 +77,8 @@
             <article><span>自动同步</span><strong>{{ substore.auto_sync_enabled?'启用':'停用' }}</strong><small>每 {{ substore.auto_sync_interval_hours }} 小时</small></article>
           </div>
           <div class="panel substore-controls">
-            <label class="check"><input v-model="substore.auto_sync_enabled" type="checkbox">启用自动同步</label>
-            <label>同步间隔（小时）<input v-model.number="substore.auto_sync_interval_hours" type="number" min="1" max="8760"></label>
+            <label class="check" for="substore-auto-sync"><input id="substore-auto-sync" v-model="substore.auto_sync_enabled" name="auto_sync_enabled" type="checkbox">启用自动同步</label>
+            <label for="substore-sync-interval">同步间隔（小时）</label><input id="substore-sync-interval" v-model.number="substore.auto_sync_interval_hours" name="auto_sync_interval_hours" type="number" min="1" max="8760">
             <button @click="saveSubstoreSettings">保存设置</button>
             <button class="primary" :disabled="substore.syncing" @click="syncSubstore">{{ substore.syncing?'同步中…':'立即同步' }}</button>
             <a class="button-link" :href="substoreUiUrl" target="_blank" rel="noopener noreferrer">新窗口打开 Sub-Store</a>
@@ -87,7 +88,7 @@
 
         <section v-if="page==='templates' && isOwner" class="content split">
           <div class="panel"><div class="panel-head"><div><p class="eyebrow">VERSIONS</p><h3>模板版本</h3></div></div><div class="version-list"><article v-for="tpl in templates" :key="tpl.id" :class="{active:tpl.active}"><div><span>{{ tpl.source_type }} · {{ tpl.status }}</span><code>{{ tpl.content_hash.slice(0,12) }}</code><small>{{ formatTime(tpl.created_at) }}</small><small v-if="tpl.last_error" class="danger-text">{{ tpl.last_error }}</small></div><div class="actions compact"><button @click="editTemplate(tpl)">编辑为新版本</button><button v-if="tpl.source_type==='remote'" @click="refreshTemplate(tpl)">刷新</button><button v-if="!tpl.active" @click="activateTemplate(tpl)">激活</button><button v-if="!tpl.active" @click="rollbackTemplate(tpl)">回滚</button><span v-if="tpl.active" class="badge active">使用中</span></div></article><div v-if="!templates.length" class="empty">尚无模板</div></div></div>
-          <form class="panel" @submit.prevent="createTemplate"><div class="panel-head"><h3>{{ templateForm.parent_id?'编辑为新版本':'导入模板' }}</h3><button v-if="templateForm.parent_id" type="button" @click="cancelTemplateEdit">取消编辑</button></div><label>来源<select v-model="templateForm.source_type"><option value="local">本地 JSON</option><option value="remote">远程 URL</option></select></label><label v-if="templateForm.source_type==='remote'">远程地址<input v-model="templateForm.source_url" type="url" required></label><label>模板 JSON<textarea v-model="templateForm.content" rows="15" :placeholder="templateForm.source_type==='remote'?'留空则从远程地址拉取':'粘贴模板 JSON'" :required="templateForm.source_type==='local'"></textarea></label><button class="primary">保存为新版本</button></form>
+          <form class="panel" @submit.prevent="createTemplate"><div class="panel-head"><h3>{{ templateForm.parent_id?'编辑为新版本':'导入模板' }}</h3><button v-if="templateForm.parent_id" type="button" @click="cancelTemplateEdit">取消编辑</button></div><label for="template-source-type">来源</label><select id="template-source-type" v-model="templateForm.source_type" name="source_type"><option value="local">本地 JSON</option><option value="remote">远程 URL</option></select><label v-if="templateForm.source_type==='remote'" for="template-source-url">远程地址</label><input v-if="templateForm.source_type==='remote'" id="template-source-url" v-model="templateForm.source_url" name="source_url" type="url" autocomplete="url" required><label for="template-content">模板 JSON</label><textarea id="template-content" v-model="templateForm.content" name="content" rows="15" :placeholder="templateForm.source_type==='remote'?'留空则从远程地址拉取':'粘贴模板 JSON'" :required="templateForm.source_type==='local'"></textarea><button class="primary">保存为新版本</button></form>
         </section>
 
         <section v-if="page==='users' && isOwner" class="content">
@@ -100,13 +101,13 @@
         </section>
 
         <section v-if="page==='account'" class="content split">
-          <form class="panel" @submit.prevent="changeUsername"><div class="panel-head"><h3>修改用户名</h3></div><label>新用户名<input v-model.trim="account.username" minlength="3" required></label><button class="primary">保存用户名</button></form>
-          <form class="panel" @submit.prevent="changePassword"><div class="panel-head"><h3>修改密码</h3></div><label>当前密码<input v-model="account.currentPassword" type="password" required></label><label>新密码<input v-model="account.newPassword" type="password" minlength="10" required></label><button class="primary">修改并重新登录</button></form>
+          <form class="panel" @submit.prevent="changeUsername"><div class="panel-head"><h3>修改用户名</h3></div><label for="account-username">新用户名</label><input id="account-username" v-model.trim="account.username" name="username" autocomplete="username" minlength="3" required><button class="primary">保存用户名</button></form>
+          <form class="panel" @submit.prevent="changePassword"><div class="panel-head"><h3>修改密码</h3></div><label for="account-current-password">当前密码</label><input id="account-current-password" v-model="account.currentPassword" name="current_password" type="password" autocomplete="current-password" required><label for="account-new-password">新密码</label><input id="account-new-password" v-model="account.newPassword" name="new_password" type="password" autocomplete="new-password" minlength="10" required><button class="primary">修改并重新登录</button></form>
         </section>
       </section>
     </div>
 
-    <div v-if="subscriptionModal" class="modal-backdrop" @click.self="subscriptionModal=null"><form class="modal" @submit.prevent="saveSubscription"><div class="panel-head"><h3>{{ subscriptionForm.id?'编辑':'添加' }}订阅</h3><button type="button" @click="subscriptionModal=null">×</button></div><label>名称<input v-model.trim="subscriptionForm.name" required maxlength="80"></label><label>订阅 URL<input v-model.trim="subscriptionForm.url" type="url" required></label><label class="check"><input v-model="subscriptionForm.enabled" type="checkbox">启用订阅</label><fieldset><legend>允许地区</legend><label v-for="r in regions" :key="r" class="check"><input v-model="subscriptionForm.allowed_regions" type="checkbox" :value="r">{{ r }}</label></fieldset><button class="primary wide">保存</button></form></div>
+    <div v-if="subscriptionModal" class="modal-backdrop" @click.self="subscriptionModal=null"><form class="modal" @submit.prevent="saveSubscription"><div class="panel-head"><h3>{{ subscriptionForm.id?'编辑':'添加' }}订阅</h3><button type="button" @click="subscriptionModal=null">×</button></div><label for="subscription-name">名称</label><input id="subscription-name" v-model.trim="subscriptionForm.name" name="name" required maxlength="80"><label for="subscription-url">订阅 URL</label><input id="subscription-url" v-model.trim="subscriptionForm.url" name="url" type="url" autocomplete="url" required><label class="check" for="subscription-enabled"><input id="subscription-enabled" v-model="subscriptionForm.enabled" name="enabled" type="checkbox">启用订阅</label><fieldset><legend>允许地区</legend><label v-for="r in regions" :key="r" class="check" :for="'subscription-region-'+r"><input :id="'subscription-region-'+r" v-model="subscriptionForm.allowed_regions" name="allowed_regions" type="checkbox" :value="r">{{ r }}</label></fieldset><button class="primary wide">保存</button></form></div>
   </div>
   <script src="/vendor/vue.js"></script>
   <script src="/app.js"></script>

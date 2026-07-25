@@ -158,3 +158,41 @@ times and data persistence.
 `POST_V1_PLAN.md` records owner web control as a post-v1 feature using a
 restricted host-side agent. F4 does not mount the Docker socket or add web
 container controls.
+
+## F5
+
+### F5.1-F5.2 implementation
+
+- Every input, select and textarea has a stable `id` or Vue-bound `:id` plus a
+  `name`.
+- Every label targets its control with `for` or `:for`.
+- Login and account credential fields declare the appropriate autocomplete
+  values.
+- A local SVG favicon is declared and served with the correct MIME type.
+
+### Local browser verification
+
+Observed on 2026-07-25 using the local application:
+
+- desktop login, owner dashboard and account settings: PASS;
+- 390x844 mobile account, template and Sub-Store status pages: PASS;
+- all visible fields resolved to their expected labels and identifiers: PASS;
+- mobile document width equals its scroll width: PASS;
+- favicon request and declaration: PASS;
+- final browser warning/error log: empty.
+
+The accepted R4 evidence in `ACCEPTANCE.md` remains valid for the member desktop
+and mobile navigation, hidden owner sections, 403 API enforcement and session
+refresh behavior.
+
+### Automated verification
+
+- enforced local suite: PASS, 29/29;
+- form metadata and label targeting assertions: PASS;
+- favicon HTTP status and MIME assertion: PASS;
+- syntax and `git diff --check`: PASS.
+
+### F5 remaining external verification
+
+F6 must run the replacement image on Alpine and confirm zero actionable
+Console/Network errors in both ProxyHub and the official Sub-Store new-tab UI.

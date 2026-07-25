@@ -41,6 +41,10 @@ test('P7 security headers and malformed authentication input remain safe', async
   assert.match(contentSecurityPolicy, /frame-ancestors 'self'/);
   assert.match(response.headers.get('permissions-policy'), /camera=\(\)/);
 
+  const favicon = await fetch(`${base}/favicon.svg`);
+  assert.equal(favicon.status, 200);
+  assert.match(favicon.headers.get('content-type') || '', /image\/svg\+xml/);
+
   const denied = await fetch(`${base}/api/me`, { headers: { cookie: 'proxyhub_session=%' } });
   assert.equal(denied.status, 401);
 });
