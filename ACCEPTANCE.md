@@ -24,11 +24,11 @@ Local evidence on 2026-07-25:
 
 | Gate | State | Evidence |
 |---|---|---|
-| P0.A1 fresh Compose start | BLOCKED | local environment has no Docker executable |
-| P0.A2 only port 3000 exposed | PENDING | Compose declares only `${PORT:-3000}:3000`; runtime evidence required |
-| P0.A3 Sub-Store host ports inaccessible | PENDING | no `ports` entry exists; runtime evidence required |
-| P0.A4 restart preserves both stores | BLOCKED | requires Docker with persistent-volume exercise |
-| P0.A5 workflows green | PENDING | record after R1 commit workflows finish |
+| P0.A1 fresh Compose start | PENDING | user deferred real-machine Docker evidence to P8 |
+| P0.A2 only port 3000 exposed | PENDING | static config passes; runtime evidence deferred to P8 |
+| P0.A3 Sub-Store host ports inaccessible | PENDING | static config passes; runtime evidence deferred to P8 |
+| P0.A4 restart preserves both stores | PENDING | user deferred persistence exercise to P8 |
+| P0.A5 workflows green | PASS | R1 commit `16273c0`, check `#8`, both workflows green |
 
 Static evidence:
 
@@ -38,7 +38,9 @@ Static evidence:
 - CI builds the image and validates Compose.
 - the dev-image workflow publishes `dev` and `dev-<sha>`.
 
-P0 cannot move to `ACCEPTED` until P0.A1-P0.A5 have runtime evidence.
+P0 remains `CODE_COMPLETE`. On 2026-07-25 the user explicitly deferred
+P0.A1-P0.A4 real-machine evidence to P8. P0 cannot move to `ACCEPTED` until
+that evidence is recorded.
 
 ### P1
 
@@ -50,15 +52,17 @@ P0 cannot move to `ACCEPTED` until P0.A1-P0.A5 have runtime evidence.
 | P1.A4 disabled user denied | PASS | session denial and token revocation test |
 | P1.A5 registration/generation switches | PASS | switch behavior integration test |
 | P1.A6 CSRF/cookie/login limit | PASS | mutation, cookie flags and rate-limit tests |
-| P1.A7 workflows green | PENDING | record after R1 commit workflows finish |
+| P1.A7 workflows green | PASS | R1 commit `16273c0`, check `#8`, both workflows green |
 
-P1 becomes `CODE_COMPLETE` after local suite and CI pass. It becomes `ACCEPTED`
-only after the user reviews this evidence and explicitly confirms P1.
+P1 state: `ACCEPTED` on 2026-07-25 after local suite, green CI and user review.
 
 ## Next checkpoint
 
-1. Push one R1 evidence/test commit to `dev`.
-2. Wait for both workflows.
-3. Record CI result.
-4. Ask the user whether Docker evidence will be collected now or deferred to P8.
+R1 is complete.
+
+1. Start R2 at P2.11-P2.14 gap audit.
+2. Implement configurable cache fallback.
+3. Add failed-source, isolation, SSRF/bounds and legacy fixture evidence.
+4. Do not enter R3 until P2 acceptance is complete and confirmed.
+
 

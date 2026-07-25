@@ -56,7 +56,7 @@ phase numbers. Existing commits remain valid, but are reassigned below.
 | Phase | State | Existing implementation | Required closure |
 |---|---|---|---|
 | P0 | CODE_COMPLETE | runtime, DB, Docker, Compose, CI, GHCR | DT persistence and port evidence |
-| P1 | CODE_COMPLETE | auth, users, settings, sessions, CSRF, login limiting | complete acceptance matrix |
+| P1 | ACCEPTED | auth, users, settings, sessions, CSRF, login limiting | accepted 2026-07-25 |
 | P2 | IN_PROGRESS | subscriptions and generation engine | legacy parity, configurable cache, failure/isolation tests |
 | P3 | IN_PROGRESS | template import/version activation | edit, reference validation, refresh/cache, explicit rollback tests |
 | P4 | CODE_COMPLETE | unified Vue dashboard/navigation | desktop/mobile browser and authorization acceptance |
@@ -399,6 +399,7 @@ R5  finish and accept P5
 R6  start P6 only after P0-P5 are accepted
 ```
 
-Next checkpoint: start `R1` only after this plan commit is green and the user
-confirms this document as the execution baseline.
+Current checkpoint: `R1` complete. Start `R2` with P2.11-P2.14 only after the
+R1 closure record is committed to `dev`.
+
 
