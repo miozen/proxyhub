@@ -61,8 +61,8 @@ phase numbers. Existing commits remain valid, but are reassigned below.
 | P3 | ACCEPTED | complete immutable template lifecycle | accepted 2026-07-25 |
 | P4 | ACCEPTED | unified Vue dashboard/navigation | accepted 2026-07-25 |
 | P5 | ACCEPTED | owner proxy, health, sync scheduler/history | accepted 2026-07-25 |
-| P6 | IN_PROGRESS | none | all installation/update/backup work |
-| P7 | NOT_STARTED | basic tests exist | full final matrix and security closure |
+| P6 | CODE_COMPLETE | host lifecycle, backup/update/rollback command | real VM evidence deferred to P8 |
+| P7 | IN_PROGRESS | test/security baseline | full final matrix and security closure |
 | P8 | NOT_STARTED | dev images publish automatically | real dev deployment acceptance |
 | P9 | NOT_STARTED | none | PR/release only by explicit approval |
 
@@ -399,9 +399,9 @@ R5  finish and accept P5
 R6  start P6 only after P0-P5 are accepted
 ```
 
-Current checkpoint: `R5` complete. `R6` is active and limited to P6.1-P6.14.
-P0 runtime evidence remains explicitly deferred to P8 by the user; this recorded
-sequence exception does not mark P0 accepted and does not relax any P0 gate.
+Current checkpoint: `R6` code complete with green workflows; its VM gates remain
+deferred to P8. P7 is active and limited to P7.1-P7.14. This recorded sequence
+exception does not mark P0 or P6 accepted and does not relax their VM gates.
 
 
 

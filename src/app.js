@@ -20,6 +20,15 @@ export function createApp({
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
+  app.use((_request, response, next) => {
+    response.set({
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'"
+    });
+    next();
+  });
   const auth = createAuth({ database, config });
   const singbox = createSingboxService({ database, config, fetchJson: singboxFetch });
   const substore = createSubstoreService({

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { redact } from '../../security/redact.js';
 
 async function request(url, timeoutMs = 10_000) {
   const controller = new AbortController();
@@ -48,7 +49,7 @@ export function createSubstoreService({
       return { id, success: true };
     } catch (error) {
       database.prepare(`UPDATE jobs SET status='error',error_text=?,finished_at=? WHERE id=?`)
-        .run(error.message, new Date(now()).toISOString(), id);
+        .run(redact(error.message), new Date(now()).toISOString(), id);
       throw error;
     } finally { running = false; }
   }
@@ -71,7 +72,7 @@ export function createSubstoreService({
     const last = database.prepare(`SELECT COALESCE(finished_at,started_at) last_at FROM jobs
       WHERE type='substore_sync' ORDER BY started_at DESC LIMIT 1`).get();
     if (!last || now() - Date.parse(last.last_at) >= hours * 3_600_000) {
-      try { await sync('schedule'); } catch (error) { console.error('[substore] scheduled sync failed:', error.message); }
+      try { await sync('schedule'); } catch (error) { console.error('[substore] scheduled sync failed:', redact(error.message)); }
     }
   }
 

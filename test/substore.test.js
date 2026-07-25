@@ -146,6 +146,13 @@ test('owner proxy adapts UI paths, redirects and cookies and streams binary API 
   response = await fetch(`${base}/substore-api/binary`, { headers: { cookie: owner.cookie } });
   assert.equal(response.headers.get('content-type'), 'application/octet-stream');
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), binary);
+
+  response = await fetch(`${base}/substore-api/api/data`, {
+    method: 'POST',
+    headers: { cookie: owner.cookie },
+    body: Buffer.alloc(5 * 1024 * 1024 + 1, 120)
+  });
+  assert.equal(response.status, 413);
 });
 
 test('P5 acceptance: scheduled success/failure history and global overlap lock', async (context) => {

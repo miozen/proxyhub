@@ -20,6 +20,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run ci
+      - run: npm audit --audit-level=high
       - name: Validate operations command
         run: sh -n ops/proxyhub
 
@@ -69,12 +70,33 @@ jobs:
           fi
           ops/proxyhub start
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
+      - name: Scan ProxyHub image
+        uses: anchore/scan-action@v7
+        with:
+          image: ghcr.io/vonzhen/proxyhub:dev
+          fail-build: true
+          severity-cutoff: high
+          output-format: table
       - name: Show Compose logs on failure
         if: failure()
         run: docker compose logs
       - name: Stop Compose
         if: always()
         run: docker compose down --volumes
+
+  platforms:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate host command on Ubuntu
+        run: sh -n ops/proxyhub
+      - name: Validate runtime on Debian 12
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work node:22-bookworm \
+            sh -c "npm ci && npm run ci && sh -n ops/proxyhub"
 
 
 

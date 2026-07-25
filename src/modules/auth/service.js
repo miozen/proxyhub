@@ -9,10 +9,16 @@ function sha256(value) {
 }
 
 function parseCookies(header = '') {
-  return Object.fromEntries(header.split(';').map((item) => item.trim()).filter(Boolean).map((item) => {
+  const result = {};
+  for (const raw of header.split(';')) {
+    const item = raw.trim();
     const index = item.indexOf('=');
-    return [decodeURIComponent(item.slice(0, index)), decodeURIComponent(item.slice(index + 1))];
-  }));
+    if (index <= 0) continue;
+    try {
+      result[decodeURIComponent(item.slice(0, index))] = decodeURIComponent(item.slice(index + 1));
+    } catch {}
+  }
+  return result;
 }
 
 export function hashPassword(password) {

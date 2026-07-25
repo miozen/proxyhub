@@ -2,6 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 
 const MAX_REWRITE_BYTES = 2 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 5 * 1024 * 1024;
 
 function rewriteSubstoreUi(value) {
   return value
@@ -40,6 +41,10 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
   const target = new URL(origin);
   const client = target.protocol === 'https:' ? https : http;
   return (request, response) => {
+    const declared = Number(request.headers['content-length'] || 0);
+    if (!Number.isFinite(declared) || declared < 0 || declared > MAX_REQUEST_BYTES) {
+      return response.status(413).json({ error: 'substore_request_too_large' });
+    }
     const upstreamPath = request.originalUrl.slice(mountPath.length) || '/';
     const headers = { ...request.headers, host: target.host, 'accept-encoding': 'identity' };
     delete headers['content-length'];
@@ -94,6 +99,14 @@ function proxyTo(origin, mountPath, rewriteBody = false) {
         error: error.message === 'substore_timeout' ? 'substore_timeout' : 'substore_unavailable'
       });
       else response.end();
+    });
+    let received = 0;
+    request.on('data', (chunk) => {
+      received += chunk.length;
+      if (received > MAX_REQUEST_BYTES) {
+        upstream.destroy();
+        if (!response.headersSent) response.status(413).json({ error: 'substore_request_too_large' });
+      }
     });
     request.pipe(upstream);
   };

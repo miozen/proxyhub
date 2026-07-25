@@ -238,11 +238,11 @@ Local evidence on 2026-07-25:
 | Gate | State | Evidence |
 |---|---|---|
 | P6.A1 clean install/all commands | PENDING | command syntax passes; clean VM exercise remains for P8 |
-| P6.A2 backup/restore both stores | PENDING | real named-volume archive/restore CI added |
-| P6.A3 ProxyHub failure rollback | PENDING | invalid registry image fault injection CI added |
-| P6.A4 Sub-Store failure rollback | PENDING | confirmed invalid Sub-Store image fault injection CI added |
-| P6.A5 uninstall/purge semantics | PENDING | preserve-volume and refused-unconfirmed-purge CI added |
-| P6.A6 workflows green | PENDING | record after R6 commit workflows finish |
+| P6.A2 backup/restore both stores | PENDING | Docker archive/restore passes; final VM reproduction remains |
+| P6.A3 ProxyHub failure rollback | PASS | invalid registry image fault injection and health recovery |
+| P6.A4 Sub-Store failure rollback | PASS | confirmed invalid Sub-Store image fault injection and recovery |
+| P6.A5 uninstall/purge semantics | PASS | preserved volumes/restart and refused-unconfirmed-purge |
+| P6.A6 workflows green | PASS | R6 commit `3445595`, both workflows green |
 
 Implementation evidence:
 
@@ -257,8 +257,38 @@ Implementation evidence:
 - uninstall preserves data; purge requires `PROXYHUB_PURGE_CONFIRM=DELETE`;
 - the application has no shell endpoint and no Docker socket.
 
-P6 remains `IN_PROGRESS` until Docker CI evidence is green and remaining
-acceptance evidence is recorded.
+P6 state: `CODE_COMPLETE`. P6.A1 and the VM portion of P6.A2 remain explicitly
+deferred to P8; P6 is not yet accepted.
+
+## R7 - P7 evidence
+
+Local evidence on 2026-07-25:
+
+- Node syntax and complete test suite: PASS, 22/22.
+- npm high-severity audit: PASS, 0 vulnerabilities.
+- shell syntax and `git diff --check`: PASS.
+
+| Gate | State | Evidence |
+|---|---|---|
+| P7.A1 automated matrix | PENDING | security/limits/platform/container jobs added; await CI |
+| P7.A2 Debian and Ubuntu | PENDING | Debian 12 plus Ubuntu 22.04/24.04 workflow added |
+| P7.A3 no critical/high vulnerability | PENDING | npm audit and Anchore image scan added |
+| P7.A4 recovery guide executed | PENDING | Docker recovery exercise exists; final VM execution remains P8 |
+| P7.A5 user security/test closure | PENDING | requires prior gates and explicit confirmation |
+
+Security closure implemented:
+
+- CSP, nosniff, referrer and browser permission headers;
+- malformed Cookie input cannot crash authentication;
+- Sub-Store request bodies are limited to 5 MiB;
+- subscription/template private-target, redirect, timeout and response limits retained;
+- credential-like error content is redacted and bounded before logs/history;
+- token hashing and AES-256-GCM subscription encryption remain covered;
+- npm and container image vulnerability gates;
+- Docker network/port assertions and Debian/Ubuntu runtime matrix;
+- `SECURITY.md` and `OPERATIONS.md` recovery guidance.
+
+P7 remains `IN_PROGRESS` pending workflows and explicit user confirmation.
 
 
 
