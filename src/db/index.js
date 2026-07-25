@@ -20,3 +20,4 @@ export function databaseHealth(database) {
   return result?.ok === 1;
 }
 
+

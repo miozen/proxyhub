@@ -28,3 +28,4 @@ test('applies initial migration idempotently with WAL and foreign keys', () => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+

@@ -34,3 +34,4 @@ test('reports healthy database and reachable Sub-Store', async (context) => {
   assert.equal(body.checks.database, 'ok');
 });
 
+

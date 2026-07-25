@@ -37,3 +37,4 @@ jobs:
           DATA_ENCRYPTION_KEY: ci-encryption-key-with-at-least-32-characters
         run: docker compose config --quiet
 
+

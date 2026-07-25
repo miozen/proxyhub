@@ -107,3 +107,4 @@ VALUES
   ('auto_sync_enabled', 'false', CURRENT_TIMESTAMP),
   ('auto_sync_interval_hours', '12', CURRENT_TIMESTAMP);
 
+

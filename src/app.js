@@ -1,5 +1,8 @@
 import express from 'express';
 import { createHealthRouter } from './modules/health/routes.js';
+import { createAuth } from './modules/auth/service.js';
+import { createAuthRouter } from './modules/auth/routes.js';
+import { createUserRouter } from './modules/users/routes.js';
 
 export function createApp({ config, database, probeSubstore }) {
   const app = express();
@@ -9,6 +12,9 @@ export function createApp({ config, database, probeSubstore }) {
   app.use(express.json({ limit: '1mb' }));
 
   app.use('/healthz', createHealthRouter({ database, config, probeSubstore }));
+  const auth = createAuth({ database, config });
+  app.use('/api/auth', createAuthRouter({ database, config, auth }));
+  app.use('/api', createUserRouter({ database, config, auth }));
 
   app.get('/', (_request, response) => {
     response.json({
@@ -24,4 +30,5 @@ export function createApp({ config, database, probeSubstore }) {
 
   return app;
 }
+
 
