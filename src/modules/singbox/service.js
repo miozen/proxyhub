@@ -16,6 +16,66 @@ export const DEFAULTS = {
 };
 
 export function createSingboxService({ database, config, fetchJson = fetchJsonSafe }) {
+  function template(id) {
+    return database.prepare('SELECT * FROM template_versions WHERE id=?').get(id);
+  }
+
+  async function createTemplateVersion({
+    sourceType, sourceUrl = null, content, parentId = null
+  }) {
+    const parent = parentId ? template(parentId) : null;
+    if (parentId && !parent) throw new Error('template_not_found');
+    const type = sourceType || parent?.source_type;
+    const url = sourceUrl || parent?.source_url || null;
+    if (!['local', 'remote'].includes(type)) throw new Error('template_source_invalid');
+    let resolved = content;
+    if (resolved === undefined && type === 'remote') {
+      if (!url) throw new Error('template_source_url_required');
+      resolved = await fetchJson(url);
+    }
+    if (resolved === undefined) throw new Error('template_content_required');
+    validateTemplate(resolved);
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    database.prepare(`INSERT INTO template_versions
+      (id,source_type,source_url,content_json,content_hash,active,created_at,parent_id,status,last_checked_at,last_error)
+      VALUES(?,?,?,?,?,0,?,?, 'ready',?,NULL)`)
+      .run(id, type, type === 'remote' ? url : null, JSON.stringify(resolved), hashTemplate(resolved), now, parentId, type === 'remote' ? now : null);
+    return { id, parent_id: parentId };
+  }
+
+  async function refreshTemplate(id) {
+    const current = template(id);
+    if (!current) throw new Error('template_not_found');
+    if (current.source_type !== 'remote' || !current.source_url) throw new Error('template_not_remote');
+    const checkedAt = new Date().toISOString();
+    try {
+      const content = await fetchJson(current.source_url);
+      database.prepare("UPDATE template_versions SET status='ready',last_checked_at=?,last_error=NULL WHERE id=?").run(checkedAt, id);
+      return await createTemplateVersion({
+        sourceType: 'remote', sourceUrl: current.source_url, content, parentId: id
+      });
+    } catch (error) {
+      database.prepare("UPDATE template_versions SET status='error',last_checked_at=?,last_error=? WHERE id=?")
+        .run(checkedAt, error.message, id);
+      throw error;
+    }
+  }
+
+  function activateTemplate(id) {
+    return database.transaction(() => {
+      if (!template(id)) return null;
+      const previous = database.prepare('SELECT id FROM template_versions WHERE active=1').get();
+      database.prepare('UPDATE template_versions SET active=0 WHERE active=1').run();
+      database.prepare("UPDATE template_versions SET active=1,status='ready' WHERE id=?").run(id);
+      return { previous_id: previous?.id || null, active_id: id };
+    })();
+  }
+
+  function hashTemplate(value) {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  }
+
   async function generate(user) {
     const templateRow = database.prepare('SELECT * FROM template_versions WHERE active=1').get();
     if (!templateRow) throw new Error('active_template_required');
@@ -52,9 +112,14 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
   return {
     generate,
     saveRun,
-    hashTemplate: (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+    hashTemplate,
+    template,
+    createTemplateVersion,
+    refreshTemplate,
+    activateTemplate
   };
 }
+
 
 
 

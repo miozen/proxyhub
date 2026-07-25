@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { encryptUrl, decryptUrl } from './crypto.js';
 import { assertSafeUrl, fetchJsonSafe } from './fetch.js';
-import { normalizeNodes, validateTemplate } from './engine.js';
+import { normalizeNodes } from './engine.js';
 
 const REGIONS = new Set(['HK', 'TW', 'SG', 'JP', 'US']);
 const cleanRegions = (value) => [...new Set((Array.isArray(value) ? value : []).filter((item) => REGIONS.has(item)))];
@@ -78,34 +78,65 @@ export function createSingboxRouter({ database, config, auth, service }) {
   });
 
   router.get('/admin/templates', auth.requireOwner, (_request, response) => response.json({
-    templates: database.prepare('SELECT id,source_type,source_url,content_hash,active,created_at FROM template_versions ORDER BY created_at DESC').all()
+    templates: database.prepare(`SELECT id,source_type,source_url,content_hash,active,created_at,
+      parent_id,status,last_checked_at,last_error FROM template_versions ORDER BY created_at DESC`).all()
   }));
+  router.get('/admin/templates/:id', auth.requireOwner, (request, response) => {
+    const row = service.template(request.params.id);
+    if (!row) return response.status(404).json({ error: 'template_not_found' });
+    response.json({
+      template: {
+        id: row.id, source_type: row.source_type, source_url: row.source_url,
+        content: JSON.parse(row.content_json), content_hash: row.content_hash,
+        active: !!row.active, parent_id: row.parent_id, status: row.status,
+        last_checked_at: row.last_checked_at, last_error: row.last_error,
+        created_at: row.created_at
+      }
+    });
+  });
   router.post('/admin/templates', auth.requireOwner, auth.requireCsrf, async (request, response) => {
-    const remote = request.body?.source_type === 'remote';
-    let content = request.body?.content;
-    if (remote) {
-      try { content = await fetchJsonSafe(request.body?.source_url); }
-      catch (error) { return response.status(400).json({ error: error.message }); }
+    try {
+      const result = await service.createTemplateVersion({
+        sourceType: request.body?.source_type,
+        sourceUrl: request.body?.source_url,
+        content: request.body?.content
+      });
+      response.status(201).json(result);
+    } catch (error) { response.status(400).json({ error: error.message }); }
+  });
+  router.post('/admin/templates/:id/versions', auth.requireOwner, auth.requireCsrf, async (request, response) => {
+    try {
+      const result = await service.createTemplateVersion({
+        sourceType: request.body?.source_type,
+        sourceUrl: request.body?.source_url,
+        content: request.body?.content,
+        parentId: request.params.id
+      });
+      response.status(201).json(result);
+    } catch (error) {
+      response.status(error.message === 'template_not_found' ? 404 : 400).json({ error: error.message });
     }
-    try { validateTemplate(content); } catch (error) { return response.status(400).json({ error: error.message }); }
-    const id = auth.newId();
-    database.prepare(`INSERT INTO template_versions(id,source_type,source_url,content_json,content_hash,active,created_at)
-      VALUES(?,?,?,?,?,0,?)`).run(id, remote ? 'remote' : 'local', remote ? request.body.source_url : null, JSON.stringify(content), service.hashTemplate(content), new Date().toISOString());
-    response.status(201).json({ id });
+  });
+  router.post('/admin/templates/:id/refresh', auth.requireOwner, auth.requireCsrf, async (request, response) => {
+    try { response.status(201).json(await service.refreshTemplate(request.params.id)); }
+    catch (error) {
+      const status = error.message === 'template_not_found' ? 404 : (error.message === 'template_not_remote' ? 400 : 502);
+      response.status(status).json({ error: error.message });
+    }
   });
   router.post('/admin/templates/:id/activate', auth.requireOwner, auth.requireCsrf, (request, response) => {
-    const activated = database.transaction(() => {
-      const exists = database.prepare('SELECT id FROM template_versions WHERE id=?').get(request.params.id);
-      if (!exists) return false;
-      database.prepare('UPDATE template_versions SET active=0 WHERE active=1').run();
-      database.prepare('UPDATE template_versions SET active=1 WHERE id=?').run(request.params.id);
-      return true;
-    })();
-    if (!activated) return response.status(404).json({ error: 'not_found' });
-    response.json({ success: true });
+    const result = service.activateTemplate(request.params.id);
+    if (!result) return response.status(404).json({ error: 'template_not_found' });
+    response.json({ success: true, ...result });
+  });
+  router.post('/admin/templates/:id/rollback', auth.requireOwner, auth.requireCsrf, (request, response) => {
+    const result = service.activateTemplate(request.params.id);
+    if (!result) return response.status(404).json({ error: 'template_not_found' });
+    response.json({ success: true, rollback: true, ...result });
   });
   return router;
 }
+
 
 
 

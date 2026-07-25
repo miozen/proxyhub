@@ -9,6 +9,19 @@ export function validateTemplate(config) {
     if (tags.has(outbound.tag)) throw new Error(`duplicate_tag:${outbound.tag}`);
     tags.add(outbound.tag);
   }
+  const missing = [];
+  for (const outbound of config.outbounds) {
+    for (const tag of outbound.outbounds || []) {
+      if (!tags.has(tag)) missing.push(`outbound:${outbound.tag}->${tag}`);
+    }
+  }
+  for (const server of config.dns?.servers || []) {
+    if (server.detour && !tags.has(server.detour)) missing.push(`dns:${server.tag || server.server}->${server.detour}`);
+  }
+  for (const [index, rule] of (config.route?.rules || []).entries()) {
+    if (rule.outbound && !tags.has(rule.outbound)) missing.push(`route:${index}->${rule.outbound}`);
+  }
+  if (missing.length) throw new Error(`template_reference_missing:${missing.slice(0, 5).join(',')}`);
   return true;
 }
 
@@ -91,6 +104,7 @@ export function injectTemplate(template, nodes, groups, byRegion, directTag = 'ð
   validateTemplate(config);
   return config;
 }
+
 
 
 

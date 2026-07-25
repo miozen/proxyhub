@@ -7,6 +7,7 @@
   <title>ProxyHub</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/substore.css">
+  <link rel="stylesheet" href="/templates.css">
 </head>
 <body>
   <div id="app" v-cloak>
@@ -86,8 +87,8 @@
         </section>
 
         <section v-if="page==='templates' && isOwner" class="content split">
-          <div class="panel"><div class="panel-head"><div><p class="eyebrow">VERSIONS</p><h3>模板版本</h3></div></div><div class="version-list"><button v-for="tpl in templates" :key="tpl.id" @click="activateTemplate(tpl)" :class="{active:tpl.active}"><span>{{ tpl.source_type }}</span><code>{{ tpl.content_hash.slice(0,12) }}</code><small>{{ formatTime(tpl.created_at) }}</small></button><div v-if="!templates.length" class="empty">尚无模板</div></div></div>
-          <form class="panel" @submit.prevent="createTemplate"><div class="panel-head"><h3>导入模板</h3></div><label>来源<select v-model="templateForm.source_type"><option value="local">本地 JSON</option><option value="remote">远程 URL</option></select></label><label v-if="templateForm.source_type==='remote'">远程地址<input v-model="templateForm.source_url" type="url" required></label><label v-else>模板 JSON<textarea v-model="templateForm.content" rows="15" required></textarea></label><button class="primary">保存为新版本</button></form>
+          <div class="panel"><div class="panel-head"><div><p class="eyebrow">VERSIONS</p><h3>模板版本</h3></div></div><div class="version-list"><article v-for="tpl in templates" :key="tpl.id" :class="{active:tpl.active}"><div><span>{{ tpl.source_type }} · {{ tpl.status }}</span><code>{{ tpl.content_hash.slice(0,12) }}</code><small>{{ formatTime(tpl.created_at) }}</small><small v-if="tpl.last_error" class="danger-text">{{ tpl.last_error }}</small></div><div class="actions compact"><button @click="editTemplate(tpl)">编辑为新版本</button><button v-if="tpl.source_type==='remote'" @click="refreshTemplate(tpl)">刷新</button><button v-if="!tpl.active" @click="activateTemplate(tpl)">激活</button><button v-if="!tpl.active" @click="rollbackTemplate(tpl)">回滚</button><span v-if="tpl.active" class="badge active">使用中</span></div></article><div v-if="!templates.length" class="empty">尚无模板</div></div></div>
+          <form class="panel" @submit.prevent="createTemplate"><div class="panel-head"><h3>{{ templateForm.parent_id?'编辑为新版本':'导入模板' }}</h3><button v-if="templateForm.parent_id" type="button" @click="cancelTemplateEdit">取消编辑</button></div><label>来源<select v-model="templateForm.source_type"><option value="local">本地 JSON</option><option value="remote">远程 URL</option></select></label><label v-if="templateForm.source_type==='remote'">远程地址<input v-model="templateForm.source_url" type="url" required></label><label>模板 JSON<textarea v-model="templateForm.content" rows="15" :placeholder="templateForm.source_type==='remote'?'留空则从远程地址拉取':'粘贴模板 JSON'" :required="templateForm.source_type==='local'"></textarea></label><button class="primary">保存为新版本</button></form>
         </section>
 
         <section v-if="page==='users' && isOwner" class="content">
@@ -112,6 +113,7 @@
   <script src="/app.js"></script>
 </body>
 </html>
+
 
 
 

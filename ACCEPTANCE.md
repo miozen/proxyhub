@@ -105,6 +105,36 @@ explicit user confirmation.
 R2 is complete. R3 is limited to P3.1-P3.11 template management and its
 acceptance gates. No P4/P5 work may be mixed into R3.
 
+## R3 - P3 evidence
+
+Local evidence on 2026-07-25:
+
+- Node syntax check: PASS.
+- complete local test suite: PASS, 18/18.
+- `git diff --check`: PASS.
+- npm high-severity audit: PASS, 0 vulnerabilities.
+
+| Gate | State | Evidence |
+|---|---|---|
+| P3.A1 invalid JSON/reference graph blocked | PASS | strict outbound, DNS and route reference validation test |
+| P3.A2 remote failure retains cached content | PASS | failed refresh leaves active V1 content usable |
+| P3.A3 editing creates immutable new version | PASS | V1/V2/V3 content, parent and hash assertions |
+| P3.A4 rollback selects requested generation version | PASS | V3 generation then explicit rollback to V1 |
+| P3.A5 workflows green | PENDING | record after R3 commit workflows finish |
+
+Implementation evidence:
+
+- migration `003_template_lifecycle.sql` adds parent/status/check/error metadata;
+- local and remote creation share strict validation;
+- refresh success creates a child version;
+- refresh failure records the error without replacing content;
+- edit saves a child version instead of mutating its parent;
+- activation and rollback switch the unique active version transactionally;
+- owner UI exposes edit, refresh, activate, rollback, hash and state.
+
+P3 remains `IN_PROGRESS` until P3.A5 passes and the user explicitly accepts it.
+
+
 
 
 

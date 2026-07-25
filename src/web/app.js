@@ -15,7 +15,7 @@ createApp({
     substore: { health: {}, jobs: [], syncing: false, auto_sync_enabled: false, auto_sync_interval_hours: 12 },
     generatedUrl: '', generationResult: null, subscriptionModal: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
-    templateForm: { source_type: 'local', source_url: '', content: '' },
+    templateForm: { parent_id: null, source_type: 'local', source_url: '', content: '' },
     account: { username: '', currentPassword: '', newPassword: '' },
     nav: [
       { id: 'dashboard', label: '总览', icon: '◫' }, { id: 'subscriptions', label: '我的订阅', icon: '⌁' },
@@ -113,9 +113,42 @@ createApp({
     async createTemplate() {
       try {
         const body = { ...this.templateForm };
-        if (body.source_type === 'local') body.content = JSON.parse(body.content);
-        const data = await this.api('/api/admin/templates', { method: 'POST', body }); await this.loadTemplates(); this.flash(`模板 ${data.id.slice(0,8)} 已保存`);
+        const parent = body.parent_id;
+        delete body.parent_id;
+        if (String(body.content || '').trim()) body.content = JSON.parse(body.content);
+        else delete body.content;
+        const route = parent ? `/api/admin/templates/${parent}/versions` : '/api/admin/templates';
+        const data = await this.api(route, { method: 'POST', body });
+        this.templateForm = { parent_id: null, source_type: 'local', source_url: '', content: '' };
+        await this.loadTemplates();
+        this.flash(`模板 ${data.id.slice(0,8)} 已保存为新版本`);
       } catch (error) { this.flash(`模板无效：${error.message}`, 'error'); }
+    },
+    async editTemplate(tpl) {
+      const data = await this.api(`/api/admin/templates/${tpl.id}`);
+      this.templateForm = {
+        parent_id: tpl.id,
+        source_type: data.template.source_type,
+        source_url: data.template.source_url || '',
+        content: JSON.stringify(data.template.content, null, 2)
+      };
+    },
+    cancelTemplateEdit() { this.templateForm = { parent_id: null, source_type: 'local', source_url: '', content: '' }; },
+    async refreshTemplate(tpl) {
+      try {
+        const data = await this.api(`/api/admin/templates/${tpl.id}/refresh`, { method: 'POST' });
+        await this.loadTemplates();
+        this.flash(`远程模板已刷新为版本 ${data.id.slice(0,8)}`);
+      } catch (error) {
+        await this.loadTemplates();
+        this.flash(`刷新失败，继续保留旧版本：${error.message}`, 'error');
+      }
+    },
+    async rollbackTemplate(tpl) {
+      if (!confirm(`回滚并激活版本 ${tpl.id.slice(0,8)}？`)) return;
+      await this.api(`/api/admin/templates/${tpl.id}/rollback`, { method: 'POST' });
+      await this.loadTemplates();
+      this.flash('模板已回滚');
     },
     async activateTemplate(tpl) { if (tpl.active || !confirm('激活此模板版本？')) return; await this.api(`/api/admin/templates/${tpl.id}/activate`, { method: 'POST' }); await this.loadTemplates(); },
     async userAction(item, action) { await this.api(`/api/admin/users/${item.id}/${action}`, { method: 'POST' }); await this.loadUsers(); },
@@ -130,6 +163,7 @@ createApp({
     formatTime(value) { return new Date(value).toLocaleString(); }
   }
 }).mount('#app');
+
 
 
 
