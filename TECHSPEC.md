@@ -424,16 +424,20 @@ Required before `dev -> master`:
 
 ## 15. Delivery phases
 
+Phase definitions, task IDs, status and acceptance gates are authoritative only
+in `IMPLEMENTATION_PLAN.md`. The fixed phase names are:
+
 ```yaml
 P0: scaffold, compose, db, CI
 P1: auth/users/settings
-P2: singbox engine/templates/subscriptions
-P3: unified UI
-P4: substore proxy/health/sync
-P5: update/backup/rollback
-P6: security/tests/docs
-P7: dev deployment acceptance
-P8: dev-to-master PR only after explicit approval
+P2: singbox engine/subscriptions
+P3: template management
+P4: unified UI
+P5: substore proxy/health/sync
+P6: install/backup/update/rollback
+P7: security/tests/docs
+P8: dev deployment acceptance
+P9: formal release after explicit approval
 ```
 
 ## 16. Non-goals v0.1
@@ -446,6 +450,7 @@ P8: dev-to-master PR only after explicit approval
 - Kubernetes.
 - PM2 deployment.
 - Direct commits to `master`.
+
 
 
 
