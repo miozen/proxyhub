@@ -59,7 +59,7 @@ phase numbers. Existing commits remain valid, but are reassigned below.
 | P1 | ACCEPTED | auth, users, settings, sessions, CSRF, login limiting | accepted 2026-07-25 |
 | P2 | ACCEPTED | subscriptions and generation engine | accepted 2026-07-25 |
 | P3 | ACCEPTED | complete immutable template lifecycle | accepted 2026-07-25 |
-| P4 | CODE_COMPLETE | unified Vue dashboard/navigation | desktop/mobile browser and authorization acceptance |
+| P4 | ACCEPTED | unified Vue dashboard/navigation | accepted 2026-07-25 |
 | P5 | IN_PROGRESS | owner proxy, health, sync scheduler/history | real upstream, WebSocket/static/stream/error acceptance |
 | P6 | NOT_STARTED | none | all installation/update/backup work |
 | P7 | NOT_STARTED | basic tests exist | full final matrix and security closure |
@@ -399,8 +399,8 @@ R5  finish and accept P5
 R6  start P6 only after P0-P5 are accepted
 ```
 
-Current checkpoint: `R3` complete. Start `R4` with P4.1-P4.12 only after the
-R3 closure record is committed to `dev`.
+Current checkpoint: `R4` complete. `R5` is active and limited to P5.1-P5.14.
+Do not enter R6 until P5 acceptance is recorded and explicitly confirmed.
 
 
 

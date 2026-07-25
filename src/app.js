@@ -11,7 +11,10 @@ import { createSubstoreService } from './modules/substore/service.js';
 import { createSubstoreRouter } from './modules/substore/routes.js';
 import { mountSubstoreProxy } from './modules/substore/proxy.js';
 
-export function createApp({ config, database, probeSubstore, singboxFetch, substoreTransport }) {
+export function createApp({
+  config, database, probeSubstore, singboxFetch, substoreTransport,
+  substoreSchedulerIntervalMs, substoreNow
+}) {
   const app = express();
   const webRoot = fileURLToPath(new URL('./web/', import.meta.url));
 
@@ -19,7 +22,10 @@ export function createApp({ config, database, probeSubstore, singboxFetch, subst
   app.set('trust proxy', config.trustProxy);
   const auth = createAuth({ database, config });
   const singbox = createSingboxService({ database, config, fetchJson: singboxFetch });
-  const substore = createSubstoreService({ database, config, transport: substoreTransport });
+  const substore = createSubstoreService({
+    database, config, transport: substoreTransport,
+    schedulerIntervalMs: substoreSchedulerIntervalMs, now: substoreNow
+  });
   mountSubstoreProxy(app, { auth, config });
   app.use(express.json({ limit: '1mb' }));
 
@@ -29,6 +35,7 @@ export function createApp({ config, database, probeSubstore, singboxFetch, subst
   app.use('/api', createUserRouter({ database, config, auth }));
   app.use('/api/admin/substore', createSubstoreRouter({ database, auth, service: substore }));
   app.locals.stopBackgroundTasks = () => substore.stop();
+  app.locals.runSubstoreScheduler = () => substore.runScheduled();
 
   app.get('/vendor/vue.js', (_request, response) => {
     response.sendFile(path.resolve('node_modules/vue/dist/vue.global.prod.js'));

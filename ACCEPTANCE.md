@@ -159,7 +159,7 @@ Local evidence on 2026-07-25:
 | P4.A3 member UI/API authorization | PASS | member sees four allowed tabs; owner sections hidden; owner APIs return 403 |
 | P4.A4 refresh preserves session | PASS | owner and member remain authenticated after reload |
 | P4.A5 no key-page runtime errors | PASS | navigation and role-switch run; final browser log is empty |
-| P4.A6 workflows green | PENDING | record after R4 commit workflows finish |
+| P4.A6 workflows green | PASS | R4 commit `a99f14f`, check `#16`, both workflows green |
 
 Browser defects found and fixed:
 
@@ -168,7 +168,50 @@ Browser defects found and fixed:
 - login and logout reset the mobile menu state;
 - role switching no longer leaves a blank owner-only page visible to a member.
 
-P4 remains `CODE_COMPLETE` until P4.A6 passes and the user explicitly accepts it.
+P4 state: `ACCEPTED` on 2026-07-25 after browser/API evidence, green CI and
+explicit user confirmation.
+
+## Next checkpoint
+
+R4 is complete. R5 is limited to P5.1-P5.14 Sub-Store integration and its
+acceptance gates. No P6 lifecycle/update work may be mixed into R5.
+
+## R5 - P5 evidence
+
+Local evidence on 2026-07-25:
+
+- Node syntax check: PASS.
+- complete local test suite: PASS, 20/20.
+- `git diff --check`: PASS.
+- Docker runtime: unavailable (`docker` executable not installed).
+- upstream image selected: `xream/sub-store:2.36.21`.
+
+| Gate | State | Evidence |
+|---|---|---|
+| P5.A1 anonymous/member UI/API denied | PASS | proxy and admin API return 401/403 integration assertions |
+| P5.A2 pinned official UI/API/assets | PENDING | proxy adaptation covered by local upstream; real image requires Docker |
+| P5.A3 stream/WebSocket | PENDING | binary streaming passes; upstream source search found no WebSocket dependency; real image confirmation requires Docker |
+| P5.A4 manual/scheduled result history | PASS | manual success plus scheduled success/failure persistence assertions |
+| P5.A5 concurrent sync rejected | PASS | held first request causes second request to return 409 |
+| P5.A6 no direct host access | PENDING | Compose has no Sub-Store `ports`; runtime evidence requires Docker |
+| P5.A7 workflows green | PENDING | record after R5 commit workflows finish |
+
+Implementation evidence:
+
+- owner-only same-origin UI and API mounts remain `/substore/` and `/substore-api/`;
+- redirects, cookie Domain/Path and root-relative HTML/JS paths are adapted;
+- non-text bodies stream without buffering;
+- textual rewriting is bounded at 2 MiB;
+- proxy connection timeout and stable upstream error codes are returned;
+- component health includes backend/frontend error details;
+- manual and scheduled sync share one overlap lock;
+- success/error history persists in SQLite;
+- stale running jobs are closed as interrupted after restart;
+- official image is configurable and defaults to fixed tag `2.36.21`;
+- Compose exposes internal ports only and mounts no Docker socket.
+
+P5 remains `IN_PROGRESS`. P5.A2, P5.A3, P5.A6 require Docker evidence and
+P5.A7 requires green workflows.
 
 
 

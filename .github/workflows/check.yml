@@ -36,6 +36,21 @@ jobs:
           SESSION_SECRET: ci-session-secret-with-at-least-32-characters
           DATA_ENCRYPTION_KEY: ci-encryption-key-with-at-least-32-characters
         run: docker compose config --quiet
+      - name: Run pinned Sub-Store integration smoke
+        env:
+          SESSION_SECRET: ci-session-secret-with-at-least-32-characters
+          DATA_ENCRYPTION_KEY: ci-encryption-key-with-at-least-32-characters
+        run: |
+          docker compose up -d --build
+          node scripts/p5-compose-smoke.js
+          test -z "$(docker compose port sub-store 3000 2>/dev/null || true)"
+          test -z "$(docker compose port sub-store 3001 2>/dev/null || true)"
+      - name: Show Compose logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Stop Compose
+        if: always()
+        run: docker compose down
 
 
 

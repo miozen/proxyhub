@@ -37,8 +37,11 @@ services:
       start_period: 15s
 
   sub-store:
-    image: ${SUBSTORE_IMAGE:-xream/sub-store:latest}
+    image: ${SUBSTORE_IMAGE:-xream/sub-store:2.36.21}
     restart: unless-stopped
+    expose:
+      - "3000"
+      - "3001"
     volumes:
       - ./data/sub-store:/opt/app/data
     networks:

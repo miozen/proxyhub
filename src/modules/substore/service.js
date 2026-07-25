@@ -11,8 +11,12 @@ async function request(url, timeoutMs = 10_000) {
   } finally { clearTimeout(timer); }
 }
 
-export function createSubstoreService({ database, config, transport = request }) {
+export function createSubstoreService({
+  database, config, transport = request, schedulerIntervalMs = 60_000, now = () => Date.now()
+}) {
   let running = false;
+  database.prepare(`UPDATE jobs SET status='error',error_text='interrupted_by_restart',finished_at=?
+    WHERE type='substore_sync' AND status='running'`).run(new Date(now()).toISOString());
 
   async function health() {
     const checks = await Promise.allSettled([
@@ -22,7 +26,11 @@ export function createSubstoreService({ database, config, transport = request })
     return {
       backend: checks[0].status === 'fulfilled',
       frontend: checks[1].status === 'fulfilled',
-      healthy: checks.every((item) => item.status === 'fulfilled')
+      healthy: checks.every((item) => item.status === 'fulfilled'),
+      errors: {
+        backend: checks[0].status === 'rejected' ? checks[0].reason?.message || 'unavailable' : null,
+        frontend: checks[1].status === 'rejected' ? checks[1].reason?.message || 'unavailable' : null
+      }
     };
   }
 
@@ -30,17 +38,17 @@ export function createSubstoreService({ database, config, transport = request })
     if (running) throw new Error('sync_already_running');
     running = true;
     const id = randomUUID();
-    const started = new Date().toISOString();
+    const started = new Date(now()).toISOString();
     database.prepare(`INSERT INTO jobs(id,type,status,trigger_type,started_at)
       VALUES(?,'substore_sync','running',?,?)`).run(id, triggerType, started);
     try {
       const result = await transport(`${config.substoreOrigin}/api/sync`, 60_000);
       database.prepare(`UPDATE jobs SET status='success',result_json=?,finished_at=? WHERE id=?`)
-        .run(JSON.stringify(result), new Date().toISOString(), id);
+        .run(JSON.stringify(result), new Date(now()).toISOString(), id);
       return { id, success: true };
     } catch (error) {
       database.prepare(`UPDATE jobs SET status='error',error_text=?,finished_at=? WHERE id=?`)
-        .run(error.message, new Date().toISOString(), id);
+        .run(error.message, new Date(now()).toISOString(), id);
       throw error;
     } finally { running = false; }
   }
@@ -57,17 +65,19 @@ export function createSubstoreService({ database, config, transport = request })
     };
   }
 
-  const timer = setInterval(async () => {
+  async function runScheduled() {
     if (!setting('auto_sync_enabled', config.autoSyncEnabled) || running) return;
     const hours = Number(setting('auto_sync_interval_hours', config.autoSyncIntervalHours));
-    const last = database.prepare(`SELECT finished_at FROM jobs WHERE type='substore_sync'
-      AND status='success' ORDER BY finished_at DESC LIMIT 1`).get();
-    if (!last || Date.now() - Date.parse(last.finished_at) >= hours * 3_600_000) {
+    const last = database.prepare(`SELECT COALESCE(finished_at,started_at) last_at FROM jobs
+      WHERE type='substore_sync' ORDER BY started_at DESC LIMIT 1`).get();
+    if (!last || now() - Date.parse(last.last_at) >= hours * 3_600_000) {
       try { await sync('schedule'); } catch (error) { console.error('[substore] scheduled sync failed:', error.message); }
     }
-  }, 60_000);
+  }
+
+  const timer = setInterval(runScheduled, schedulerIntervalMs);
   timer.unref();
 
-  return { health, sync, settings, stop: () => clearInterval(timer), isRunning: () => running };
+  return { health, sync, settings, runScheduled, stop: () => clearInterval(timer), isRunning: () => running };
 }
 
