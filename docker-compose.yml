@@ -39,9 +39,6 @@ services:
   sub-store:
     image: ${SUBSTORE_IMAGE:-xream/sub-store:2.36.21}
     restart: unless-stopped
-    expose:
-      - "3000"
-      - "3001"
     volumes:
       - substore-data:/opt/app/data
     networks:

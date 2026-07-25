@@ -40,8 +40,8 @@ jobs:
         run: |
           docker compose up -d --build
           node scripts/p5-compose-smoke.js
-          test -z "$(docker compose port sub-store 3000 2>/dev/null || true)"
-          test -z "$(docker compose port sub-store 3001 2>/dev/null || true)"
+          substore_id="$(docker compose ps -q sub-store)"
+          test "$(docker inspect "$substore_id" --format '{{len .HostConfig.PortBindings}}')" = "0"
       - name: Show Compose logs on failure
         if: failure()
         run: docker compose logs

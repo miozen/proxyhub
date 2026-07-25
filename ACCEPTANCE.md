@@ -187,6 +187,8 @@ Local evidence on 2026-07-25:
 - upstream image selected: `xream/sub-store:2.36.21`.
 - first R5 Docker run exposed bind-mount write risk and missing failure-step
   environment; named volumes and job-level CI secrets now cover both cases.
+- second R5 Docker run passed the real-image smoke; its final failure was a
+  Compose CLI port-query assertion, replaced with container PortBindings inspection.
 
 | Gate | State | Evidence |
 |---|---|---|
