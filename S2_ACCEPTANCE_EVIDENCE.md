@@ -1,6 +1,6 @@
 # S2 business acceptance evidence
 
-Status: ACTIVE
+Status: COMPLETE
 Target: Ubuntu ARM64 production-like host
 Evidence date: 2026-07-26
 Secrets, public addresses and subscription contents are intentionally omitted.
@@ -65,4 +65,13 @@ duplicate real-host test was required.
 
 ## S2.5 - Full backup and persistence
 
-Status: PENDING
+Status: PASS
+
+- the environment file and both named volumes were archived successfully;
+- both volume archives passed integrity inspection;
+- full restore recreated the stack and restored the environment byte-for-byte;
+- the restored client token generated valid JSON with expected outbounds;
+- ProxyHub database and Sub-Store health returned `ok`/HTTP 200;
+- a full stack restart retained data and restored live client generation.
+
+S2.1 through S2.5 are accepted. No business-acceptance gate remains open.

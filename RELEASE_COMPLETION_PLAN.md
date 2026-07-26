@@ -20,6 +20,8 @@ Branch policy: dev first; master/tag/release require explicit approval
 
 ## S2 - Required business acceptance
 
+Status: COMPLETE
+
 - S2.1 owner/member registration, approval and account controls;
 - S2.2 subscription testing, generation diagnostics, token URL
   persistence/reset, protocol-transparent node assembly and stale fallback;
@@ -31,6 +33,8 @@ Only missing evidence is executed; already accepted gates are not repeated
 without a defect or artifact change.
 
 ## S3 - Actions simplification
+
+Status: IN_PROGRESS
 
 - dev/PR: tests and targeted Docker integration;
 - docs-only changes: no Docker build;

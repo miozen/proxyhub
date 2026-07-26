@@ -10,7 +10,55 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.scope.outputs.docker }}
+      operations: ${{ steps.scope.outputs.operations }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select targeted checks
+        id: scope
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] ||
+            ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          files="$(git diff --name-only "$base" "$GITHUB_SHA")"
+          printf '%s\n' "$files"
+
+          docker=false
+          operations=false
+          while IFS= read -r file; do
+            case "$file" in
+              Dockerfile|package.json|package-lock.json|.env.example|docker-compose.yml|\
+              src/*|ops/*|deploy/*|scripts/p5-compose-smoke.js|\
+              .github/workflows/check.yml|.github/workflows/image.yml)
+                docker=true
+                ;;
+            esac
+            case "$file" in
+              .env.example|ops/*|deploy/*|install.sh|\
+              scripts/build-deployment-assets.sh|.github/workflows/check.yml)
+                operations=true
+                ;;
+            esac
+          done <<<"$files"
+
+          echo "docker=$docker" >>"$GITHUB_OUTPUT"
+          echo "operations=$operations" >>"$GITHUB_OUTPUT"
+
   deployment-assets:
+    needs: changes
+    if: needs.changes.outputs.operations == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +103,8 @@ jobs:
           sh -n scripts/build-deployment-assets.sh
 
   docker:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     env:
       SESSION_SECRET: ci-session-secret-with-at-least-32-characters
@@ -154,6 +204,8 @@ jobs:
         run: docker compose down --volumes
 
   platforms:
+    needs: changes
+    if: needs.changes.outputs.operations == 'true'
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04]

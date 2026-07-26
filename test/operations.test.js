@@ -43,19 +43,32 @@ test('F4 stores and restores independent rollback points', () => {
 test('O1 publishes and verifies amd64 and arm64 image manifests', () => {
   assert.match(imageWorkflow, /docker\/setup-qemu-action@v3/);
   assert.match(imageWorkflow, /platforms:\s*linux\/amd64,linux\/arm64/);
-  assert.match(imageWorkflow, /imagetools inspect ghcr\.io\/vonzhen\/proxyhub:dev/);
+  assert.match(imageWorkflow, /image=ghcr\.io\/vonzhen\/proxyhub:dev/);
+  assert.match(imageWorkflow, /image="ghcr\.io\/vonzhen\/proxyhub:\$GITHUB_REF_NAME"/);
+  assert.match(imageWorkflow, /imagetools inspect "\$image"/);
   assert.match(imageWorkflow, /imagetools inspect xream\/sub-store:2\.36\.21/);
   assert.match(imageWorkflow, /grep -q 'linux\/amd64'/);
   assert.match(imageWorkflow, /grep -q 'linux\/arm64'/);
 });
 
-test('O1 image publishing ignores host-only and documentation changes', () => {
-  assert.match(imageWorkflow, /paths:/);
-  assert.match(imageWorkflow, /- Dockerfile/);
-  assert.match(imageWorkflow, /- package-lock\.json/);
-  assert.match(imageWorkflow, /- src\/\*\*/);
-  assert.doesNotMatch(imageWorkflow, /- ops\/\*\*/);
-  assert.doesNotMatch(imageWorkflow, /- \*\.md/);
+test('S3 publishes dev images manually and reserves automatic builds for release tags', () => {
+  assert.match(imageWorkflow, /workflow_dispatch:/);
+  assert.match(imageWorkflow, /tags:\s*\['v\*'\]/);
+  assert.doesNotMatch(imageWorkflow, /branches:\s*\[dev\]/);
+  assert.match(imageWorkflow, /github\.ref == 'refs\/heads\/dev'/);
+  assert.match(imageWorkflow, /type=raw,value=dev,enable=/);
+  assert.match(imageWorkflow, /type=ref,event=tag,enable=/);
+  assert.match(imageWorkflow, /type=raw,value=latest,enable=/);
+});
+
+test('S3 keeps CI on dev and master while targeting expensive checks by changed paths', () => {
+  assert.match(checkWorkflow, /branches:\s*\[dev, master\]/);
+  assert.match(checkWorkflow, /Select targeted checks/);
+  assert.match(checkWorkflow, /docker:\s*\$\{\{ steps\.scope\.outputs\.docker \}\}/);
+  assert.match(checkWorkflow, /operations:\s*\$\{\{ steps\.scope\.outputs\.operations \}\}/);
+  assert.match(checkWorkflow, /if: needs\.changes\.outputs\.docker == 'true'/);
+  assert.match(checkWorkflow, /if: needs\.changes\.outputs\.operations == 'true'/);
+  assert.doesNotMatch(checkWorkflow, /\*\.md/);
 });
 
 test('CI vulnerability scan checks the image built by the same job', () => {
