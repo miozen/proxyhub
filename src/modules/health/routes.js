@@ -25,7 +25,7 @@ export function createHealthRouter({ database, config, probeSubstore = probe }) 
     response.json({
       status: databaseOk ? (substore.reachable ? 'ok' : 'degraded') : 'error',
       service: 'proxyhub',
-      version: '0.1.4',
+      version: '0.1.5',
       checks: {
         database: databaseOk ? 'ok' : 'error',
         substore

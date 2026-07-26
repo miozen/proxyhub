@@ -22,7 +22,7 @@ proxyhub logs sub-store -f
 proxyhub check-updates
 proxyhub update proxyhub
 proxyhub update sub-store
-proxyhub update proxyhub --version 0.1.4
+proxyhub update proxyhub --version 0.1.5
 proxyhub update sub-store --version 2.36.21
 proxyhub update proxyhub --image ghcr.io/miozen/proxyhub:<tag-or-digest>
 proxyhub update sub-store --image xream/sub-store:<tag-or-digest>
