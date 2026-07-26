@@ -5,6 +5,18 @@ Branch policy: implement on `dev`; never modify/merge `master` without explicit 
 Scope baseline: user-approved P0-P9 plan  
 Compatibility migration: out of scope
 
+Post-release lifecycle amendment:
+
+- `STABILITY_LIFECYCLE_DESIGN.md` supersedes P6.4, P6.9-P6.13 and any older
+  install/uninstall retention wording;
+- install is fresh-only unless explicitly invoked with destructive
+  `--replace`;
+- update is the only data-preserving version-change path;
+- uninstall deletes all managed ProxyHub and Sub-Store state after exact
+  confirmation;
+- Sub-Store stable discovery, bounded logs/history/backups and their L1-L6
+  acceptance gates are authoritative.
+
 ## 1. Execution protocol
 
 This file is the single source of truth for phase numbers, scope and acceptance.
