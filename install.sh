@@ -265,16 +265,20 @@ ensure_host_tools() {
 
 port_is_listening() {
   if command -v ss >/dev/null 2>&1; then
-    ss -ltn | awk -v port="$PORT" '
-      NR > 1 {
-        count=split($4, parts, ":")
-        if (parts[count] == port) found=1
-      }
-      END { exit(found ? 0 : 1) }
-    '
-    return
+    socket_table=$(ss -ltn)
+  elif command -v netstat >/dev/null 2>&1; then
+    socket_table=$(netstat -ltn)
+  else
+    return 1
   fi
-  return 1
+
+  printf '%s\n' "$socket_table" | awk -v port="$PORT" '
+    NR > 1 {
+      count=split($4, parts, ":")
+      if (parts[count] == port) found=1
+    }
+    END { exit(found ? 0 : 1) }
+  '
 }
 
 set_env() {
