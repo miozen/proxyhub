@@ -309,9 +309,21 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
 
   function saveRun(userId, status, summary, output, error = null) {
     const now = new Date().toISOString();
-    database.prepare(`INSERT INTO generation_runs
-      (id,user_id,status,summary_json,error_text,config_json,started_at,finished_at)
-      VALUES(?,?,?,?,?,?,?,?)`).run(randomUUID(), userId, status, summary && JSON.stringify(summary), error, output && JSON.stringify(output), now, now);
+    database.transaction(() => {
+      database.prepare(`INSERT INTO generation_runs
+        (id,user_id,status,summary_json,error_text,config_json,started_at,finished_at)
+        VALUES(?,?,?,?,?,?,?,?)`).run(
+        randomUUID(), userId, status, summary && JSON.stringify(summary),
+        error, output && JSON.stringify(output), now, now
+      );
+      database.prepare(`DELETE FROM generation_runs
+        WHERE user_id=? AND id NOT IN (
+          SELECT id FROM generation_runs
+          WHERE user_id=?
+          ORDER BY started_at DESC, id DESC
+          LIMIT 10
+        )`).run(userId, userId);
+    })();
   }
 
   return {

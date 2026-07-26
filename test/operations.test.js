@@ -19,7 +19,20 @@ const deploymentCompose = fs.readFileSync(
   new URL('../deploy/compose.yaml', import.meta.url),
   'utf8'
 );
+const developmentCompose = fs.readFileSync(
+  new URL('../docker-compose.yml', import.meta.url),
+  'utf8'
+);
 const installer = fs.readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
+const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+const operationsGuide = fs.readFileSync(
+  new URL('../OPERATIONS.md', import.meta.url),
+  'utf8'
+);
+const hostAcceptance = fs.readFileSync(
+  new URL('../HOST_ACCEPTANCE.md', import.meta.url),
+  'utf8'
+);
 
 test('F4 scopes lifecycle and update commands to one component', () => {
   assert.match(source, /dc up -d --no-deps "\$component"/);
@@ -123,6 +136,14 @@ test('O1.3 deployment Compose pulls images and exposes only ProxyHub', () => {
   assert.match(checkWorkflow, /-f deploy\/compose\.yaml/);
 });
 
+test('L6.3 bounds Docker logs for both services', () => {
+  for (const compose of [developmentCompose, deploymentCompose]) {
+    assert.equal((compose.match(/driver: json-file/g) || []).length, 2);
+    assert.equal((compose.match(/max-size: "5m"/g) || []).length, 2);
+    assert.equal((compose.match(/max-file: "3"/g) || []).length, 2);
+  }
+});
+
 test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /alpine\) HOST_OS=alpine/);
   assert.match(installer, /debian\) HOST_OS=debian/);
@@ -140,24 +161,27 @@ test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /--ref is required for the dev channel/);
   assert.match(installer, /--image is required for the dev channel/);
   assert.match(installer, /port \$PORT is already in use/);
+  assert.match(installer, /command -v ss/);
+  assert.match(installer, /ss -ltn/);
+  assert.match(installer, /elif command -v netstat/);
+  assert.match(installer, /netstat -ltn/);
   assert.match(installer, /at least 512 MiB of free disk space is required/);
 });
 
-test('O1.4 installer preserves secrets and writes the fixed host layout', () => {
+test('L6.1 installer supports only fresh or explicitly destructive replacement', () => {
   assert.match(installer, /DEPLOY_DIR=\/opt\/proxyhub/);
   assert.match(installer, /ENV_FILE=\$CONFIG_DIR\/proxyhub\.env/);
   assert.match(installer, /DATA_DIR=\/var\/lib\/proxyhub/);
-  assert.match(installer, /if \[ ! -f "\$ENV_FILE" \]; then/);
   assert.match(installer, /openssl rand -hex 32/);
-  assert.match(installer, /legacy_env_file\(\)/);
-  assert.match(installer, /com\.docker\.compose\.project\.working_dir/);
-  assert.match(installer, /existing ProxyHub data requires its original SESSION_SECRET and DATA_ENCRYPTION_KEY/);
-  assert.match(installer, /set_env SESSION_SECRET "\$legacy_session"/);
-  assert.match(installer, /set_env DATA_ENCRYPTION_KEY "\$legacy_data_key"/);
-  assert.match(installer, /PORT_EXPLICIT=false/);
-  assert.match(installer, /SUBSTORE_VERSION_EXPLICIT=false/);
-  assert.match(installer, /PORT=\$\(read_env PORT "\$PORT"\)/);
-  assert.match(installer, /SUBSTORE_IMAGE=\$\(read_env SUBSTORE_IMAGE/);
+  assert.match(installer, /--replace\) REPLACE=true/);
+  assert.match(installer, /managed_state_exists\(\)/);
+  assert.match(installer, /ProxyHub is already installed; use update or rerun with --replace/);
+  assert.match(installer, /PROXYHUB_REPLACE_CONFIRM:-/);
+  assert.match(installer, /Type DELETE to replace the existing installation:/);
+  assert.match(installer, /remove_managed_state\(\)/);
+  assert.match(installer, /docker volume rm proxyhub-data proxyhub-substore-data/);
+  assert.doesNotMatch(installer, /legacy_env_file\(\)/);
+  assert.doesNotMatch(installer, /Reuse configuration and data/);
   assert.match(installer, /ln -sf "\$DEPLOY_DIR\/proxyhub" "\$CLI_PATH"/);
   assert.match(installer, /"\$CLI_PATH" install/);
 });
@@ -179,6 +203,17 @@ test('O1.5 discovers approved component images and pins digests', () => {
   assert.match(source, /image repository is not approved for \$component/);
   assert.match(source, /ghcr\.io\/miozen\/proxyhub/);
   assert.match(source, /ghcr\.io\/vonzhen\/proxyhub/);
+  assert.match(source, /image_arch=.*docker image inspect/);
+  assert.match(source, /does not support linux\/\$host_arch/);
+});
+
+test('L6.2 installer discovers stable Sub-Store and persists an immutable digest', () => {
+  assert.match(installer, /^SUBSTORE_VERSION=$/m);
+  assert.match(installer, /candidate=xream\/sub-store:latest/);
+  assert.match(installer, /resolve_substore_image\(\)/);
+  assert.match(installer, /\^xream\/sub-store@sha256:/);
+  assert.match(installer, /Sub-Store image does not support linux\/\$HOST_ARCH/);
+  assert.match(installer, /SUBSTORE_IMAGE=\$\(resolve_substore_image\)/);
 });
 
 test('O1.5 supports confirmed automatic and explicit component updates', () => {
@@ -189,15 +224,62 @@ test('O1.5 supports confirmed automatic and explicit component updates', () => {
   assert.match(source, /confirmation required; rerun with --yes/);
   assert.match(source, /perform_update "\$component" "\$target"/);
   assert.match(source, /for component in proxyhub sub-store/);
+  assert.match(source, /tag=\$\{version:-latest\}/);
+  assert.match(source, /is already current: \$target/);
 });
 
-test('O1.6 uninstall preserves data unless exact purge is confirmed', () => {
+test('L6.2 CI proves same-digest Sub-Store update is a container no-op', () => {
+  assert.match(checkWorkflow, /substore_digest=/);
+  assert.match(checkWorkflow, /update sub-store --image "\$substore_digest" --yes/);
+  assert.match(checkWorkflow, /Sub-Store same-digest update recreated a container/);
+});
+
+test('L6.4 treats a current image tag and its resolved digest as equivalent', () => {
+  assert.match(source, /current_image_matches_target\(\)/);
+  assert.match(source, /docker inspect "\$container_id" --format '\{\{\.Image\}\}'/);
+  assert.match(source, /docker image inspect "\$target" --format '\{\{\.Id\}\}'/);
+  assert.match(
+    source,
+    /current_image_matches_target "\$component" "\$current" "\$target"/
+  );
+});
+
+test('L6.3 prunes only old automatic component backups', () => {
+  assert.match(source, /prune_automatic_backups\(\)/);
+  assert.match(source, /-name "pre-update-\$component-\*"/);
+  assert.match(source, /\[ "\$retained" -le 5 \]/);
+  assert.match(source, /refusing to prune unexpected backup path/);
+  assert.match(checkWorkflow, /manual-keep/);
+  assert.match(checkWorkflow, /Automatic Sub-Store backup retention is not 5/);
+});
+
+test('L6.4 documents destructive lifecycle and exact dev host gates', () => {
+  for (const guide of [readme, operationsGuide]) {
+    assert.doesNotMatch(guide, /--purge|PROXYHUB_PURGE_CONFIRM/);
+    assert.match(guide, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
+    assert.match(guide, /PROXYHUB_REPLACE_CONFIRM=DELETE/);
+    assert.match(guide, /5(?:MB|m).{0,20}3/s);
+    assert.match(guide, /最近.{0,10}`?10`? 次/s);
+    assert.match(guide, /最近.{0,10}`?5`? 份/s);
+  }
+  assert.match(hostAcceptance, /Alpine `amd64`/);
+  assert.match(hostAcceptance, /Ubuntu `arm64`/);
+  assert.match(hostAcceptance, /--channel dev/);
+  assert.match(hostAcceptance, /ghcr\.io\/miozen\/proxyhub:dev-/);
+  assert.match(hostAcceptance, /Sub-Store 原生备份/);
+  assert.match(hostAcceptance, /max-size=5m/);
+  assert.match(hostAcceptance, /all managed state removed/);
+});
+
+test('L6.1 uninstall always deletes managed data after exact confirmation', () => {
   assert.match(source, /Permanent deletion targets:/);
   assert.match(source, /Type DELETE to continue:/);
-  assert.match(source, /PROXYHUB_PURGE_CONFIRM:-.*DELETE/);
-  assert.match(source, /refusing purge: unexpected deployment path/);
+  assert.match(source, /PROXYHUB_UNINSTALL_CONFIRM:-.*DELETE/);
+  assert.match(source, /refusing uninstall: unexpected deployment path/);
   assert.match(source, /dc down --volumes --remove-orphans/);
-  assert.match(source, /Configuration, backups, state, logs and Docker volumes retained/);
+  assert.match(source, /uninstall accepts no options/);
+  assert.doesNotMatch(source, /--purge\) purge=true/);
+  assert.doesNotMatch(source, /Configuration, backups, state, logs and Docker volumes retained/);
   assert.match(source, /Docker was retained/);
 });
 
@@ -210,9 +292,8 @@ test('O1.6 failed clean install removes only newly created fixed-layout files', 
   assert.match(installer, /INSTALL_COMPLETE=true/);
 });
 
-test('O1.6 CI covers retained reinstall and confirmed purge', () => {
-  assert.match(checkWorkflow, /env_checksum=/);
-  assert.match(checkWorkflow, /\/tmp\/proxyhub install/);
-  assert.match(checkWorkflow, /PROXYHUB_PURGE_CONFIRM=DELETE/);
-  assert.match(checkWorkflow, /Purged volumes unexpectedly remain/);
+test('L6.1 CI covers unconfirmed no-op and confirmed destructive uninstall', () => {
+  assert.match(checkWorkflow, /PROXYHUB_UNINSTALL_CONFIRM=NO/);
+  assert.match(checkWorkflow, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
+  assert.match(checkWorkflow, /Uninstalled volumes unexpectedly remain/);
 });

@@ -151,6 +151,47 @@ jobs:
             echo "Invalid component unexpectedly succeeded"
             exit 1
           fi
+          substore_digest="$(docker image inspect xream/sub-store:2.36.21 \
+            --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+            sed -n '\|^xream/sub-store@sha256:|p' | head -1)"
+          test -n "$substore_digest"
+          awk -v image="$substore_digest" '
+            /^SUBSTORE_IMAGE=/ { print "SUBSTORE_IMAGE=" image; next }
+            { print }
+          ' .env >.env.tmp
+          mv .env.tmp .env
+          proxyhub_id="$(docker compose ps -q proxyhub)"
+          substore_id="$(docker compose ps -q sub-store)"
+          /tmp/proxyhub update sub-store --image "$substore_digest" --yes
+          if [ "$(docker compose ps -q proxyhub)" != "$proxyhub_id" ] ||
+            [ "$(docker compose ps -q sub-store)" != "$substore_id" ]; then
+            echo "Sub-Store same-digest update recreated a container"
+            exit 1
+          fi
+          mkdir -p backups/manual-keep
+          for suffix in 1 2 3 4 5 6; do
+            mkdir -p "backups/pre-update-sub-store-20000101T00000${suffix}Z"
+          done
+          retention_candidate=xream/sub-store:latest
+          retention_digest="$(docker pull "$retention_candidate" >/dev/null &&
+            docker image inspect "$retention_candidate" \
+              --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+            sed -n '\|^xream/sub-store@sha256:|p' | head -1)"
+          test -n "$retention_digest"
+          if [ "$retention_digest" = "$substore_digest" ]; then
+            echo "Sub-Store retention candidate must differ from the pinned image"
+            exit 1
+          fi
+          proxyhub_id="$(docker compose ps -q proxyhub)"
+          /tmp/proxyhub update sub-store --image "$retention_candidate" --yes
+          test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
+          automatic_count="$(find backups -mindepth 1 -maxdepth 1 -type d \
+            -name 'pre-update-sub-store-*' | wc -l)"
+          if [ "$automatic_count" -ne 5 ]; then
+            echo "Automatic Sub-Store backup retention is not 5"
+            exit 1
+          fi
+          test -d backups/manual-keep
           substore_id="$(docker compose ps -q sub-store)"
           if /tmp/proxyhub update --proxyhub-image ghcr.io/miozen/proxyhub:missing-ci; then
             echo "Injected update failure unexpectedly succeeded"
@@ -169,23 +210,18 @@ jobs:
             echo "Component-less rollback unexpectedly succeeded"
             exit 1
           fi
-          env_checksum="$(sha256sum .env | awk '{print $1}')"
           proxyhub_volume="$(docker volume inspect proxyhub-data --format '{{.Name}}')"
           substore_volume="$(docker volume inspect proxyhub-substore-data --format '{{.Name}}')"
-          /tmp/proxyhub uninstall
-          docker volume inspect proxyhub-data proxyhub-substore-data
-          /tmp/proxyhub install
-          test "$(sha256sum .env | awk '{print $1}')" = "$env_checksum"
+          if PROXYHUB_UNINSTALL_CONFIRM=NO /tmp/proxyhub uninstall; then
+            echo "Uninstall without exact confirmation unexpectedly succeeded"
+            exit 1
+          fi
           test "$(docker volume inspect proxyhub-data --format '{{.Name}}')" = "$proxyhub_volume"
           test "$(docker volume inspect proxyhub-substore-data --format '{{.Name}}')" = "$substore_volume"
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
-          if PROXYHUB_PURGE_CONFIRM=NO /tmp/proxyhub uninstall --purge; then
-            echo "Purge without exact confirmation unexpectedly succeeded"
-            exit 1
-          fi
-          PROXYHUB_PURGE_CONFIRM=DELETE /tmp/proxyhub uninstall --purge
+          PROXYHUB_UNINSTALL_CONFIRM=DELETE /tmp/proxyhub uninstall
           if docker volume inspect proxyhub-data proxyhub-substore-data; then
-            echo "Purged volumes unexpectedly remain"
+            echo "Uninstalled volumes unexpectedly remain"
             exit 1
           fi
           cp .env.example .env
