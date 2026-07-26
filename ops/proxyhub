@@ -232,25 +232,86 @@ component_restore_cmd() {
   dc up -d --no-deps "$service"
   component_health "$component" || die "$component restore health check failed"
 }
-update_cmd() {
-  ensure_env
-  proxy_image= substore_image= confirm=false
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --proxyhub-image) proxy_image=${2:-}; shift 2 ;;
-      --substore-image) substore_image=${2:-}; shift 2 ;;
-      --confirm-substore) confirm=true; shift ;;
-      *) die "unknown update option: $1" ;;
-    esac
-  done
-  [ -n "$proxy_image$substore_image" ] || die "an image option is required"
-  [ -z "$proxy_image" ] || [ -z "$substore_image" ] || die "update one component at a time"
-  [ -z "$substore_image" ] || [ "$confirm" = true ] || die "Sub-Store update requires --confirm-substore"
-  if [ -n "$proxy_image" ]; then
-    component=proxyhub; image=$proxy_image
+validate_image() {
+  component=$1 image=$2
+  case "$image" in *[!A-Za-z0-9_./:@-]*) die "invalid image reference" ;; esac
+  case "$component:$image" in
+    proxyhub:ghcr.io/vonzhen/proxyhub:*|proxyhub:ghcr.io/vonzhen/proxyhub@sha256:*) ;;
+    sub-store:xream/sub-store:*|sub-store:xream/sub-store@sha256:*) ;;
+    *) die "image repository is not approved for $component" ;;
+  esac
+}
+
+latest_proxyhub_tag() {
+  if command -v curl >/dev/null 2>&1; then
+    metadata=$(curl -fsSL --connect-timeout 15 \
+      https://api.github.com/repos/Vonzhen/proxyhub/releases/latest)
+  elif command -v wget >/dev/null 2>&1; then
+    metadata=$(wget -qO- \
+      https://api.github.com/repos/Vonzhen/proxyhub/releases/latest)
   else
-    component=sub-store; image=$substore_image
+    die "curl or wget is required for version discovery"
   fi
+  tag=$(printf '%s\n' "$metadata" |
+    sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' |
+    head -1)
+  [ -n "$tag" ] || die "no stable ProxyHub release is available"
+  printf '%s\n' "$tag"
+}
+
+candidate_tag() {
+  component=$1 version=$2 image=$3
+  if [ -n "$image" ]; then
+    validate_image "$component" "$image"
+    printf '%s\n' "$image"
+    return
+  fi
+  if [ "$component" = proxyhub ]; then
+    if [ -n "$version" ]; then
+      case "$version" in v*) tag=$version ;; *) tag=v$version ;; esac
+    else
+      tag=$(latest_proxyhub_tag)
+    fi
+    image=ghcr.io/vonzhen/proxyhub:$tag
+  else
+    tag=${version:-latest}
+    image=xream/sub-store:$tag
+  fi
+  validate_image "$component" "$image"
+  printf '%s\n' "$image"
+}
+
+resolve_image_digest() {
+  component=$1 image=$2
+  validate_image "$component" "$image"
+  case "$image" in *@sha256:*) printf '%s\n' "$image"; return ;; esac
+  docker pull "$image" >&2
+  case "$component" in
+    proxyhub) repository=ghcr.io/vonzhen/proxyhub ;;
+    sub-store) repository=xream/sub-store ;;
+  esac
+  digest=$(docker image inspect "$image" \
+    --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+    sed -n "\|^${repository}@sha256:|p" |
+    head -1)
+  [ -n "$digest" ] || die "could not resolve immutable digest for $image"
+  printf '%s\n' "$digest"
+}
+
+confirm_update() {
+  component=$1 current=$2 target=$3 assume_yes=$4
+  echo "Component: $component"
+  echo "Current:   $current"
+  echo "Target:    $target"
+  [ "$assume_yes" = true ] && return
+  [ -t 0 ] || die "confirmation required; rerun with --yes"
+  printf 'Continue with backup and update? [y/N] '
+  read -r answer
+  case "$answer" in y|Y|yes|YES) ;; *) die "update cancelled" ;; esac
+}
+
+perform_update() {
+  component=$1 image=$2
   snapshot=$(component_backup_cmd "$component" "pre-update-$component-$(now)")
   mkdir -p "$STATE_DIR"
   printf '%s\n' "$snapshot" >"$STATE_DIR/$component-last-backup"
@@ -272,6 +333,62 @@ update_cmd() {
   fi
   echo "$component update successful. Rollback point: $snapshot"
 }
+
+legacy_update_cmd() {
+  proxy_image= substore_image= confirm=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --proxyhub-image) proxy_image=${2:-}; shift 2 ;;
+      --substore-image) substore_image=${2:-}; shift 2 ;;
+      --confirm-substore) confirm=true; shift ;;
+      *) die "unknown legacy update option: $1" ;;
+    esac
+  done
+  [ -n "$proxy_image$substore_image" ] || die "an image option is required"
+  [ -z "$proxy_image" ] || [ -z "$substore_image" ] ||
+    die "update one component at a time"
+  if [ -n "$proxy_image" ]; then
+    component=proxyhub; image=$proxy_image
+  else
+    component=sub-store; image=$substore_image
+    [ "$confirm" = true ] ||
+      die "Sub-Store update requires --confirm-substore"
+  fi
+  validate_image "$component" "$image"
+  perform_update "$component" "$image"
+}
+
+update_cmd() {
+  ensure_env
+  case "${1:-}" in
+    --*) legacy_update_cmd "$@"; return ;;
+  esac
+  component=${1:-}; shift || true
+  validate_component "$component"
+  version= image= assume_yes=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --version) version=${2:-}; shift 2 ;;
+      --image) image=${2:-}; shift 2 ;;
+      --yes) assume_yes=true; shift ;;
+      *) die "unknown update option: $1" ;;
+    esac
+  done
+  [ -z "$version" ] || [ -z "$image" ] ||
+    die "use either --version or --image"
+  candidate=$(candidate_tag "$component" "$version" "$image")
+  target=$(resolve_image_digest "$component" "$candidate")
+  current=$(get_env "$(component_env_key "$component")" \
+    "$(component_default_image "$component")")
+  echo "Candidate: $candidate"
+  echo "Resolved:  $target"
+  if [ "$current" = "$target" ]; then
+    echo "$component is already current: $target"
+    return
+  fi
+  confirm_update "$component" "$current" "$target" "$assume_yes"
+  perform_update "$component" "$target"
+}
 rollback_cmd() {
   component=${1:-}
   validate_component "$component"
@@ -281,16 +398,25 @@ rollback_cmd() {
 }
 check_updates_cmd() {
   ensure_env
-  proxy_image=${1:-}; substore_image=${2:-}
-  [ -n "$proxy_image$substore_image" ] || die "candidate image required"
-  [ -z "$proxy_image" ] || {
-    docker manifest inspect "$proxy_image" >/dev/null
-    echo "ProxyHub candidate available: $proxy_image"
-  }
-  [ -z "$substore_image" ] || {
-    docker manifest inspect "$substore_image" >/dev/null
-    echo "Sub-Store candidate available: $substore_image (manual confirmation required)"
-  }
+  requested=${1:-}
+  [ "$#" -le 1 ] || die "check-updates accepts at most one component"
+  [ -z "$requested" ] || validate_component "$requested"
+  failed=false
+  for component in proxyhub sub-store; do
+    [ -z "$requested" ] || [ "$requested" = "$component" ] || continue
+    if candidate=$(candidate_tag "$component" "" "") &&
+      target=$(resolve_image_digest "$component" "$candidate"); then
+      current=$(get_env "$(component_env_key "$component")" \
+        "$(component_default_image "$component")")
+      echo "$component current: $current"
+      echo "$component tag:     $candidate"
+      echo "$component latest:  $target"
+    else
+      echo "$component update check failed" >&2
+      failed=true
+    fi
+  done
+  [ "$failed" = false ]
 }
 uninstall_cmd() {
   purge=false; [ "${1:-}" != "--purge" ] || purge=true

@@ -102,14 +102,14 @@ jobs:
             exit 1
           fi
           substore_id="$(docker compose ps -q sub-store)"
-          if /tmp/proxyhub update --proxyhub-image invalid.invalid/proxyhub:missing; then
+          if /tmp/proxyhub update --proxyhub-image ghcr.io/vonzhen/proxyhub:missing-ci; then
             echo "Injected update failure unexpectedly succeeded"
             exit 1
           fi
           test "$(docker compose ps -q sub-store)" = "$substore_id"
           P5_EXISTING=1 node scripts/p5-compose-smoke.js
           proxyhub_id="$(docker compose ps -q proxyhub)"
-          if /tmp/proxyhub update --substore-image invalid.invalid/sub-store:missing --confirm-substore; then
+          if /tmp/proxyhub update --substore-image xream/sub-store:missing-ci --confirm-substore; then
             echo "Injected Sub-Store update failure unexpectedly succeeded"
             exit 1
           fi

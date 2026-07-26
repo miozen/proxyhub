@@ -14,12 +14,30 @@ proxyhub backup
 proxyhub restore /path/to/backup
 ```
 
-Before an update, record `docker compose images` and run `proxyhub backup`.
-Use fixed image tags:
+Check both components or only one:
 
 ```sh
-proxyhub update --proxyhub-image ghcr.io/vonzhen/proxyhub:<version>
-proxyhub update --substore-image xream/sub-store:<version> --confirm-substore
+proxyhub check-updates
+proxyhub check-updates proxyhub
+proxyhub check-updates sub-store
+```
+
+Update to the newest stable release:
+
+```sh
+proxyhub update proxyhub
+proxyhub update sub-store
+```
+
+The command shows the current image and resolved target digest, then asks for
+confirmation. For non-interactive operation use `--yes`. Select a version or an
+approved image explicitly when needed:
+
+```sh
+proxyhub update proxyhub --version 0.1.0
+proxyhub update sub-store --version 2.36.21
+proxyhub update proxyhub --image ghcr.io/vonzhen/proxyhub:<tag-or-digest>
+proxyhub update sub-store --image xream/sub-store:<tag-or-digest>
 ```
 
 Each update snapshots, pulls and recreates only the selected component. Updating
@@ -34,6 +52,11 @@ proxyhub rollback sub-store
 
 `rollback` requires a component. Full `backup` and `restore` continue to stop and
 recover both services together.
+
+ProxyHub discovers stable versions from this repository's latest GitHub Release.
+Sub-Store resolves the official `xream/sub-store:latest` image. Before applying
+an update, both are pinned to an immutable digest. No scheduled update is
+enabled.
 
 `proxyhub uninstall` removes containers but retains `.env`, backups and volumes.
 Permanent deletion requires:

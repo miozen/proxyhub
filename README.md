@@ -27,10 +27,10 @@ backup restore check-updates update rollback uninstall
 `OPERATIONS.md`.
 
 `uninstall` retains volumes and configuration. Purging requires both
-`uninstall --purge` and `PROXYHUB_PURGE_CONFIRM=DELETE`. Sub-Store updates
-require `--confirm-substore`. Automatic updates are disabled by default.
-Container lifecycle remains host-controlled and ProxyHub does not mount the
-Docker socket.
+`uninstall --purge` and `PROXYHUB_PURGE_CONFIRM=DELETE`. Component updates show
+the resolved digest and require confirmation; `--yes` enables non-interactive
+operation. Automatic updates are disabled by default. Container lifecycle
+remains host-controlled and ProxyHub does not mount the Docker socket.
 
 
 

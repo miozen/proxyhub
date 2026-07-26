@@ -130,3 +130,23 @@ test('O1.4 release artifact includes the executable installer', () => {
   assert.match(checkWorkflow, /dist\/install\.sh/);
   assert.match(checkWorkflow, /\.\/install\.sh --help/);
 });
+
+test('O1.5 discovers approved component images and pins digests', () => {
+  assert.match(source, /latest_proxyhub_tag\(\)/);
+  assert.match(source, /repos\/Vonzhen\/proxyhub\/releases\/latest/);
+  assert.match(source, /xream\/sub-store:\$tag/);
+  assert.match(source, /resolve_image_digest\(\)/);
+  assert.match(source, /docker image inspect "\$image"/);
+  assert.match(source, /@sha256:/);
+  assert.match(source, /image repository is not approved for \$component/);
+});
+
+test('O1.5 supports confirmed automatic and explicit component updates', () => {
+  assert.match(source, /update_cmd\(\)/);
+  assert.match(source, /--version\) version=/);
+  assert.match(source, /--image\) image=/);
+  assert.match(source, /--yes\) assume_yes=true/);
+  assert.match(source, /confirmation required; rerun with --yes/);
+  assert.match(source, /perform_update "\$component" "\$target"/);
+  assert.match(source, /for component in proxyhub sub-store/);
+});

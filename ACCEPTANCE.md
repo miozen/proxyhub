@@ -256,7 +256,7 @@ Implementation evidence:
 - backups archive both named volumes plus the active environment;
 - update snapshots data and image settings before pull/recreate/health;
 - failed updates automatically restore the snapshot;
-- Sub-Store image changes require `--confirm-substore`;
+- component image changes show current/target digests and require confirmation;
 - `check-updates` is notify-only and does not mutate containers;
 - automatic updates default to disabled;
 - uninstall preserves data; purge requires `PROXYHUB_PURGE_CONFIRM=DELETE`;
