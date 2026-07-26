@@ -31,7 +31,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 mkdir -p "$output_dir"
-install -m 0644 "$root/docker-compose.yml" "$stage/compose.yaml"
+install -m 0644 "$root/deploy/compose.yaml" "$stage/compose.yaml"
 install -m 0600 "$root/.env.example" "$stage/.env.example"
 install -m 0755 "$root/ops/proxyhub" "$stage/proxyhub"
 printf '%s\n' "$version" >"$stage/VERSION"

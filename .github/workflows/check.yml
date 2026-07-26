@@ -65,7 +65,12 @@ jobs:
           load: true
           tags: proxyhub:ci
       - name: Validate Compose
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose \
+            --env-file .env.example \
+            -f deploy/compose.yaml \
+            config --quiet
       - name: Run pinned Sub-Store integration smoke
         run: |
           cp .env.example .env

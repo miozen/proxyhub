@@ -9,14 +9,53 @@ while [ -L "$SCRIPT" ]; do
     *) SCRIPT=$(dirname -- "$SCRIPT")/$LINK ;;
   esac
 done
-ROOT=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")/.." && pwd)
-ENV_FILE="$ROOT/.env"
-STATE_DIR="$ROOT/.proxyhub"
-BACKUP_DIR="$ROOT/backups"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)
+if [ -f "$SCRIPT_DIR/compose.yaml" ]; then
+  DEFAULT_DEPLOY_DIR=$SCRIPT_DIR
+  INSTALLED_LAYOUT=true
+else
+  DEFAULT_DEPLOY_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+  INSTALLED_LAYOUT=false
+fi
+
+DEPLOY_DIR=${PROXYHUB_DEPLOY_DIR:-$DEFAULT_DEPLOY_DIR}
+if [ -n "${PROXYHUB_COMPOSE_FILE:-}" ]; then
+  COMPOSE_FILE=$PROXYHUB_COMPOSE_FILE
+elif [ -f "$DEPLOY_DIR/compose.yaml" ]; then
+  COMPOSE_FILE="$DEPLOY_DIR/compose.yaml"
+else
+  COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
+fi
+
+if [ -n "${PROXYHUB_ENV_FILE:-}" ]; then
+  ENV_FILE=$PROXYHUB_ENV_FILE
+elif [ "$INSTALLED_LAYOUT" = true ]; then
+  ENV_FILE=/etc/proxyhub/proxyhub.env
+else
+  ENV_FILE="$DEPLOY_DIR/.env"
+fi
+
+if [ "$INSTALLED_LAYOUT" = true ]; then
+  DATA_DIR=${PROXYHUB_DATA_DIR:-/var/lib/proxyhub}
+  LOG_DIR=${PROXYHUB_LOG_DIR:-/var/log/proxyhub}
+  STATE_DIR="$DATA_DIR/state"
+  BACKUP_DIR="$DATA_DIR/backups"
+else
+  DATA_DIR=${PROXYHUB_DATA_DIR:-$DEPLOY_DIR}
+  LOG_DIR=${PROXYHUB_LOG_DIR:-$DEPLOY_DIR}
+  STATE_DIR="$DEPLOY_DIR/.proxyhub"
+  BACKUP_DIR="$DEPLOY_DIR/backups"
+fi
 
 die() { echo "proxyhub: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
-dc() { docker compose --project-directory "$ROOT" "$@"; }
+dc() {
+  docker compose \
+    --project-directory "$DEPLOY_DIR" \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    "$@"
+}
 now() { date -u +%Y%m%dT%H%M%SZ; }
 ensure_env() { [ -f "$ENV_FILE" ] || die "missing .env; run: proxyhub install"; }
 health() {
@@ -118,9 +157,10 @@ set_env() {
 install_cmd() {
   need docker
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+  mkdir -p "$(dirname "$ENV_FILE")" "$BACKUP_DIR" "$STATE_DIR" "$LOG_DIR"
   if [ ! -f "$ENV_FILE" ]; then
     need openssl
-    cp "$ROOT/.env.example" "$ENV_FILE"
+    cp "$DEPLOY_DIR/.env.example" "$ENV_FILE"
     set_env SESSION_SECRET "$(openssl rand -hex 32)"
     set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)"
     set_env PROXYHUB_IMAGE "ghcr.io/vonzhen/proxyhub:dev"

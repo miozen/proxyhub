@@ -15,6 +15,10 @@ const assetBuilder = fs.readFileSync(
   new URL('../scripts/build-deployment-assets.sh', import.meta.url),
   'utf8'
 );
+const deploymentCompose = fs.readFileSync(
+  new URL('../deploy/compose.yaml', import.meta.url),
+  'utf8'
+);
 
 test('F4 scopes lifecycle and update commands to one component', () => {
   assert.match(source, /dc up -d --no-deps "\$component"/);
@@ -61,7 +65,7 @@ test('CI vulnerability scan checks the image built by the same job', () => {
 
 test('O1.2 creates a minimal checksummed deployment artifact', () => {
   assert.match(assetBuilder, /proxyhub-deploy-\$version\.tar\.gz/);
-  assert.match(assetBuilder, /docker-compose\.yml" "\$stage\/compose\.yaml/);
+  assert.match(assetBuilder, /deploy\/compose\.yaml" "\$stage\/compose\.yaml/);
   assert.match(assetBuilder, /\.env\.example" "\$stage\/\.env\.example/);
   assert.match(assetBuilder, /ops\/proxyhub" "\$stage\/proxyhub/);
   assert.match(assetBuilder, /--sort=name/);
@@ -69,4 +73,25 @@ test('O1.2 creates a minimal checksummed deployment artifact', () => {
   assert.match(checkWorkflow, /sha256sum -c SHA256SUMS/);
   assert.match(checkWorkflow, /diff -u expected\.txt contents\.txt/);
   assert.match(checkWorkflow, /actions\/upload-artifact@v4/);
+});
+
+test('O1.3 CLI selects fixed installed paths without breaking repository use', () => {
+  assert.match(source, /DEFAULT_DEPLOY_DIR=\$SCRIPT_DIR/);
+  assert.match(source, /ENV_FILE=\/etc\/proxyhub\/proxyhub\.env/);
+  assert.match(source, /DATA_DIR=\$\{PROXYHUB_DATA_DIR:-\/var\/lib\/proxyhub\}/);
+  assert.match(source, /LOG_DIR=\$\{PROXYHUB_LOG_DIR:-\/var\/log\/proxyhub\}/);
+  assert.match(source, /--project-directory "\$DEPLOY_DIR"/);
+  assert.match(source, /--env-file "\$ENV_FILE"/);
+  assert.match(source, /-f "\$COMPOSE_FILE"/);
+  assert.match(source, /ENV_FILE="\$DEPLOY_DIR\/\.env"/);
+});
+
+test('O1.3 deployment Compose pulls images and exposes only ProxyHub', () => {
+  assert.doesNotMatch(deploymentCompose, /^\s+build:/m);
+  assert.match(deploymentCompose, /image: \$\{PROXYHUB_IMAGE:\?PROXYHUB_IMAGE is required\}/);
+  assert.match(deploymentCompose, /image: \$\{SUBSTORE_IMAGE:\?SUBSTORE_IMAGE is required\}/);
+  assert.match(deploymentCompose, /"\$\{PORT:-3000\}:3000"/);
+  const portDeclarations = deploymentCompose.match(/^\s+ports:/gm) || [];
+  assert.equal(portDeclarations.length, 1);
+  assert.match(checkWorkflow, /-f deploy\/compose\.yaml/);
 });
