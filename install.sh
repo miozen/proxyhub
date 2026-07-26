@@ -24,6 +24,12 @@ die() {
   exit 1
 }
 
+valid_version() {
+  [ -n "$1" ] &&
+    printf '%s\n' "$1" |
+      LC_ALL=C grep -Eq '^[A-Za-z0-9._-]+$'
+}
+
 usage() {
   cat <<'EOF'
 Usage: install.sh [options]
@@ -57,9 +63,7 @@ done
 case "$CHANNEL" in stable|dev) ;; *) die "channel must be stable or dev" ;; esac
 case "$PORT" in ''|*[!0-9]*) die "port must be an integer" ;; esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "port must be between 1 and 65535"
-case "$SUBSTORE_VERSION" in
-  ''|*[![:alnum:]._-]*) die "invalid Sub-Store version" ;;
-esac
+valid_version "$SUBSTORE_VERSION" || die "invalid Sub-Store version"
 
 [ -r /etc/os-release ] || die "unsupported host: missing /etc/os-release"
 . /etc/os-release
@@ -151,7 +155,7 @@ prepare_stable_assets() {
     RELEASE_TAG=$(latest_release)
   fi
   [ -n "$RELEASE_TAG" ] || die "could not discover the latest release"
-  case "$RELEASE_TAG" in *[![:alnum:]._-]*) die "invalid release version" ;; esac
+  valid_version "$RELEASE_TAG" || die "invalid release version"
   VERSION=${RELEASE_TAG#v}
 
   archive_name=proxyhub-deploy-$VERSION.tar.gz
