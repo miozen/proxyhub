@@ -25,12 +25,15 @@ jobs:
           tar -tzf "proxyhub-deploy-dev-${GITHUB_SHA}.tar.gz" | sort >contents.txt
           printf '%s\n' .env.example VERSION compose.yaml proxyhub | sort >expected.txt
           diff -u expected.txt contents.txt
+          sh -n install.sh
+          ./install.sh --help
       - uses: actions/upload-artifact@v4
         with:
           name: proxyhub-deployment-${{ github.sha }}
           path: |
             dist/proxyhub-deploy-dev-${{ github.sha }}.tar.gz
             dist/SHA256SUMS
+            dist/install.sh
           if-no-files-found: error
           retention-days: 14
 
@@ -48,6 +51,7 @@ jobs:
       - name: Validate operations command
         run: |
           sh -n ops/proxyhub
+          sh -n install.sh
           sh -n scripts/build-deployment-assets.sh
 
   docker:

@@ -19,6 +19,7 @@ const deploymentCompose = fs.readFileSync(
   new URL('../deploy/compose.yaml', import.meta.url),
   'utf8'
 );
+const installer = fs.readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
 
 test('F4 scopes lifecycle and update commands to one component', () => {
   assert.match(source, /dc up -d --no-deps "\$component"/);
@@ -69,7 +70,7 @@ test('O1.2 creates a minimal checksummed deployment artifact', () => {
   assert.match(assetBuilder, /\.env\.example" "\$stage\/\.env\.example/);
   assert.match(assetBuilder, /ops\/proxyhub" "\$stage\/proxyhub/);
   assert.match(assetBuilder, /--sort=name/);
-  assert.match(assetBuilder, /sha256sum "\$archive_name" >SHA256SUMS/);
+  assert.match(assetBuilder, /sha256sum "\$archive_name" install\.sh >SHA256SUMS/);
   assert.match(checkWorkflow, /sha256sum -c SHA256SUMS/);
   assert.match(checkWorkflow, /diff -u expected\.txt contents\.txt/);
   assert.match(checkWorkflow, /actions\/upload-artifact@v4/);
@@ -94,4 +95,38 @@ test('O1.3 deployment Compose pulls images and exposes only ProxyHub', () => {
   const portDeclarations = deploymentCompose.match(/^\s+ports:/gm) || [];
   assert.equal(portDeclarations.length, 1);
   assert.match(checkWorkflow, /-f deploy\/compose\.yaml/);
+});
+
+test('O1.4 installer validates hosts, channels and immutable inputs', () => {
+  assert.match(installer, /alpine\) HOST_OS=alpine/);
+  assert.match(installer, /debian\) HOST_OS=debian/);
+  assert.match(installer, /ubuntu\) HOST_OS=ubuntu/);
+  assert.match(installer, /x86_64\|amd64\) HOST_ARCH=amd64/);
+  assert.match(installer, /aarch64\|arm64\) HOST_ARCH=arm64/);
+  assert.match(installer, /sha256sum -c archive\.sha256/);
+  assert.match(installer, /--ref is required for the dev channel/);
+  assert.match(installer, /--image is required for the dev channel/);
+  assert.match(installer, /port \$PORT is already in use/);
+  assert.match(installer, /at least 512 MiB of free disk space is required/);
+});
+
+test('O1.4 installer preserves secrets and writes the fixed host layout', () => {
+  assert.match(installer, /DEPLOY_DIR=\/opt\/proxyhub/);
+  assert.match(installer, /ENV_FILE=\$CONFIG_DIR\/proxyhub\.env/);
+  assert.match(installer, /DATA_DIR=\/var\/lib\/proxyhub/);
+  assert.match(installer, /if \[ ! -f "\$ENV_FILE" \]; then/);
+  assert.match(installer, /openssl rand -hex 32/);
+  assert.match(installer, /PORT_EXPLICIT=false/);
+  assert.match(installer, /SUBSTORE_VERSION_EXPLICIT=false/);
+  assert.match(installer, /PORT=\$\(read_env PORT "\$PORT"\)/);
+  assert.match(installer, /SUBSTORE_IMAGE=\$\(read_env SUBSTORE_IMAGE/);
+  assert.match(installer, /ln -sf "\$DEPLOY_DIR\/proxyhub" "\$CLI_PATH"/);
+  assert.match(installer, /"\$CLI_PATH" install/);
+});
+
+test('O1.4 release artifact includes the executable installer', () => {
+  assert.match(assetBuilder, /install -m 0755 "\$root\/install\.sh"/);
+  assert.match(assetBuilder, /sha256sum "\$archive_name" install\.sh/);
+  assert.match(checkWorkflow, /dist\/install\.sh/);
+  assert.match(checkWorkflow, /\.\/install\.sh --help/);
 });

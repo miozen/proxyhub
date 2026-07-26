@@ -35,6 +35,7 @@ install -m 0644 "$root/deploy/compose.yaml" "$stage/compose.yaml"
 install -m 0600 "$root/.env.example" "$stage/.env.example"
 install -m 0755 "$root/ops/proxyhub" "$stage/proxyhub"
 printf '%s\n' "$version" >"$stage/VERSION"
+install -m 0755 "$root/install.sh" "$output_dir/install.sh"
 
 TZ=UTC tar \
   --sort=name \
@@ -48,7 +49,7 @@ TZ=UTC tar \
 
 (
   cd "$output_dir"
-  sha256sum "$archive_name" >SHA256SUMS
+  sha256sum "$archive_name" install.sh >SHA256SUMS
 )
 
 printf '%s\n' "$output_dir/$archive_name"
