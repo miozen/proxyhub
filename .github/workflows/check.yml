@@ -151,6 +151,23 @@ jobs:
             echo "Invalid component unexpectedly succeeded"
             exit 1
           fi
+          substore_digest="$(docker image inspect xream/sub-store:2.36.21 \
+            --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+            sed -n '\|^xream/sub-store@sha256:|p' | head -1)"
+          test -n "$substore_digest"
+          awk -v image="$substore_digest" '
+            /^SUBSTORE_IMAGE=/ { print "SUBSTORE_IMAGE=" image; next }
+            { print }
+          ' .env >.env.tmp
+          mv .env.tmp .env
+          proxyhub_id="$(docker compose ps -q proxyhub)"
+          substore_id="$(docker compose ps -q sub-store)"
+          /tmp/proxyhub update sub-store --image "$substore_digest" --yes
+          if [ "$(docker compose ps -q proxyhub)" != "$proxyhub_id" ] ||
+            [ "$(docker compose ps -q sub-store)" != "$substore_id" ]; then
+            echo "Sub-Store same-digest update recreated a container"
+            exit 1
+          fi
           substore_id="$(docker compose ps -q sub-store)"
           if /tmp/proxyhub update --proxyhub-image ghcr.io/miozen/proxyhub:missing-ci; then
             echo "Injected update failure unexpectedly succeeded"

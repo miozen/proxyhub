@@ -6,7 +6,7 @@ CHANNEL=stable
 RELEASE_VERSION=
 REF=
 PROXYHUB_IMAGE=
-SUBSTORE_VERSION=2.36.21
+SUBSTORE_VERSION=
 PORT=3000
 SUBSTORE_VERSION_EXPLICIT=false
 PORT_EXPLICIT=false
@@ -66,7 +66,9 @@ done
 case "$CHANNEL" in stable|dev) ;; *) die "channel must be stable or dev" ;; esac
 case "$PORT" in ''|*[!0-9]*) die "port must be an integer" ;; esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "port must be between 1 and 65535"
-valid_version "$SUBSTORE_VERSION" || die "invalid Sub-Store version"
+if [ "$SUBSTORE_VERSION_EXPLICIT" = true ]; then
+  valid_version "$SUBSTORE_VERSION" || die "invalid Sub-Store version"
+fi
 
 [ -r /etc/os-release ] || die "unsupported host: missing /etc/os-release"
 . /etc/os-release
@@ -286,6 +288,26 @@ set_env() {
   mv "$temp" "$file"
 }
 
+resolve_substore_image() {
+  if [ "$SUBSTORE_VERSION_EXPLICIT" = true ]; then
+    candidate=xream/sub-store:$SUBSTORE_VERSION
+  else
+    candidate=xream/sub-store:latest
+  fi
+  docker pull "$candidate" >&2
+  resolved=$(docker image inspect "$candidate" \
+    --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+    sed -n '\|^xream/sub-store@sha256:|p' |
+    head -1)
+  [ -n "$resolved" ] ||
+    die "could not resolve immutable Sub-Store digest"
+  image_os=$(docker image inspect "$candidate" --format '{{.Os}}')
+  image_arch=$(docker image inspect "$candidate" --format '{{.Architecture}}')
+  [ "$image_os" = linux ] && [ "$image_arch" = "$HOST_ARCH" ] ||
+    die "Sub-Store image does not support linux/$HOST_ARCH"
+  printf '%s\n' "$resolved"
+}
+
 managed_state_exists() {
   [ -e "$DEPLOY_DIR" ] || [ -e "$CONFIG_DIR" ] ||
     [ -e "$DATA_DIR" ] || [ -e "$LOG_DIR" ] ||
@@ -359,7 +381,6 @@ install_docker
 command -v openssl >/dev/null 2>&1 || die "openssl is required"
 docker info >/dev/null 2>&1 || die "Docker daemon is not running"
 
-SUBSTORE_IMAGE=xream/sub-store:$SUBSTORE_VERSION
 existing_install=false
 managed_state_exists && existing_install=true
 
@@ -372,10 +393,10 @@ available_kb=$(df -Pk / | awk 'NR == 2 { print $4 }')
 
 echo "Host: $HOST_OS/$HOST_ARCH"
 echo "ProxyHub image: $PROXYHUB_IMAGE"
-echo "Sub-Store image: $SUBSTORE_IMAGE"
 
 docker pull "$PROXYHUB_IMAGE"
-docker pull "$SUBSTORE_IMAGE"
+SUBSTORE_IMAGE=$(resolve_substore_image)
+echo "Sub-Store image: $SUBSTORE_IMAGE"
 
 if [ "$existing_install" = true ]; then
   [ "$REPLACE" = true ] ||

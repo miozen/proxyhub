@@ -178,6 +178,17 @@ test('O1.5 discovers approved component images and pins digests', () => {
   assert.match(source, /image repository is not approved for \$component/);
   assert.match(source, /ghcr\.io\/miozen\/proxyhub/);
   assert.match(source, /ghcr\.io\/vonzhen\/proxyhub/);
+  assert.match(source, /image_arch=.*docker image inspect/);
+  assert.match(source, /does not support linux\/\$host_arch/);
+});
+
+test('L6.2 installer discovers stable Sub-Store and persists an immutable digest', () => {
+  assert.match(installer, /^SUBSTORE_VERSION=$/m);
+  assert.match(installer, /candidate=xream\/sub-store:latest/);
+  assert.match(installer, /resolve_substore_image\(\)/);
+  assert.match(installer, /\^xream\/sub-store@sha256:/);
+  assert.match(installer, /Sub-Store image does not support linux\/\$HOST_ARCH/);
+  assert.match(installer, /SUBSTORE_IMAGE=\$\(resolve_substore_image\)/);
 });
 
 test('O1.5 supports confirmed automatic and explicit component updates', () => {
@@ -188,6 +199,14 @@ test('O1.5 supports confirmed automatic and explicit component updates', () => {
   assert.match(source, /confirmation required; rerun with --yes/);
   assert.match(source, /perform_update "\$component" "\$target"/);
   assert.match(source, /for component in proxyhub sub-store/);
+  assert.match(source, /tag=\$\{version:-latest\}/);
+  assert.match(source, /is already current: \$target/);
+});
+
+test('L6.2 CI proves same-digest Sub-Store update is a container no-op', () => {
+  assert.match(checkWorkflow, /substore_digest=/);
+  assert.match(checkWorkflow, /update sub-store --image "\$substore_digest" --yes/);
+  assert.match(checkWorkflow, /Sub-Store same-digest update recreated a container/);
 });
 
 test('L6.1 uninstall always deletes managed data after exact confirmation', () => {

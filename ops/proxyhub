@@ -285,7 +285,6 @@ candidate_tag() {
 resolve_image_digest() {
   component=$1 image=$2
   validate_image "$component" "$image"
-  case "$image" in *@sha256:*) printf '%s\n' "$image"; return ;; esac
   docker pull "$image" >&2
   case "$component" in
     proxyhub)
@@ -301,6 +300,15 @@ resolve_image_digest() {
     sed -n "\|^${repository}@sha256:|p" |
     head -1)
   [ -n "$digest" ] || die "could not resolve immutable digest for $image"
+  case "$(uname -m)" in
+    x86_64|amd64) host_arch=amd64 ;;
+    aarch64|arm64) host_arch=arm64 ;;
+    *) die "unsupported host architecture" ;;
+  esac
+  image_os=$(docker image inspect "$image" --format '{{.Os}}')
+  image_arch=$(docker image inspect "$image" --format '{{.Architecture}}')
+  [ "$image_os" = linux ] && [ "$image_arch" = "$host_arch" ] ||
+    die "$image does not support linux/$host_arch"
   printf '%s\n' "$digest"
 }
 
@@ -361,7 +369,14 @@ legacy_update_cmd() {
       die "Sub-Store update requires --confirm-substore"
   fi
   validate_image "$component" "$image"
-  perform_update "$component" "$image"
+  target=$(resolve_image_digest "$component" "$image")
+  current=$(get_env "$(component_env_key "$component")" \
+    "$(component_default_image "$component")")
+  if [ "$current" = "$target" ]; then
+    echo "$component is already current: $target"
+    return
+  fi
+  perform_update "$component" "$target"
 }
 
 update_cmd() {
