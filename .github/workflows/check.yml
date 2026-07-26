@@ -172,16 +172,18 @@ jobs:
           for suffix in 1 2 3 4 5 6; do
             mkdir -p "backups/pre-update-sub-store-20000101T00000${suffix}Z"
           done
-          awk '
-            /^SUBSTORE_IMAGE=/ {
-              print "SUBSTORE_IMAGE=xream/sub-store:2.36.21"
-              next
-            }
-            { print }
-          ' .env >.env.tmp
-          mv .env.tmp .env
+          retention_candidate=xream/sub-store:latest
+          retention_digest="$(docker pull "$retention_candidate" >/dev/null &&
+            docker image inspect "$retention_candidate" \
+              --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+            sed -n '\\|^xream/sub-store@sha256:|p' | head -1)"
+          test -n "$retention_digest"
+          if [ "$retention_digest" = "$substore_digest" ]; then
+            echo "Sub-Store retention candidate must differ from the pinned image"
+            exit 1
+          fi
           proxyhub_id="$(docker compose ps -q proxyhub)"
-          /tmp/proxyhub update sub-store --image "$substore_digest" --yes
+          /tmp/proxyhub update sub-store --image "$retention_candidate" --yes
           test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
           automatic_count="$(find backups -mindepth 1 -maxdepth 1 -type d \
             -name 'pre-update-sub-store-*' | wc -l)"
