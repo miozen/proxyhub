@@ -1,0 +1,526 @@
+#!/bin/sh
+set -eu
+
+SCRIPT=$0
+while [ -L "$SCRIPT" ]; do
+  LINK=$(readlink "$SCRIPT")
+  case "$LINK" in
+    /*) SCRIPT=$LINK ;;
+    *) SCRIPT=$(dirname -- "$SCRIPT")/$LINK ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)
+if [ -f "$SCRIPT_DIR/compose.yaml" ]; then
+  DEFAULT_DEPLOY_DIR=$SCRIPT_DIR
+  INSTALLED_LAYOUT=true
+else
+  DEFAULT_DEPLOY_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+  INSTALLED_LAYOUT=false
+fi
+
+DEPLOY_DIR=${PROXYHUB_DEPLOY_DIR:-$DEFAULT_DEPLOY_DIR}
+if [ -n "${PROXYHUB_COMPOSE_FILE:-}" ]; then
+  COMPOSE_FILE=$PROXYHUB_COMPOSE_FILE
+elif [ -f "$DEPLOY_DIR/compose.yaml" ]; then
+  COMPOSE_FILE="$DEPLOY_DIR/compose.yaml"
+else
+  COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
+fi
+
+if [ -n "${PROXYHUB_ENV_FILE:-}" ]; then
+  ENV_FILE=$PROXYHUB_ENV_FILE
+elif [ "$INSTALLED_LAYOUT" = true ]; then
+  ENV_FILE=/etc/proxyhub/proxyhub.env
+else
+  ENV_FILE="$DEPLOY_DIR/.env"
+fi
+
+if [ "$INSTALLED_LAYOUT" = true ]; then
+  DATA_DIR=${PROXYHUB_DATA_DIR:-/var/lib/proxyhub}
+  LOG_DIR=${PROXYHUB_LOG_DIR:-/var/log/proxyhub}
+  STATE_DIR="$DATA_DIR/state"
+  BACKUP_DIR="$DATA_DIR/backups"
+else
+  DATA_DIR=${PROXYHUB_DATA_DIR:-$DEPLOY_DIR}
+  LOG_DIR=${PROXYHUB_LOG_DIR:-$DEPLOY_DIR}
+  STATE_DIR="$DEPLOY_DIR/.proxyhub"
+  BACKUP_DIR="$DEPLOY_DIR/backups"
+fi
+
+die() { echo "proxyhub: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
+dc() {
+  docker compose \
+    --project-directory "$DEPLOY_DIR" \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    "$@"
+}
+now() { date -u +%Y%m%dT%H%M%SZ; }
+ensure_env() { [ -f "$ENV_FILE" ] || die "missing .env; run: proxyhub install"; }
+health() {
+  port=$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)
+  port=${port:-3000}
+  i=0
+  while [ "$i" -lt 45 ]; do
+    wget -qO- "http://127.0.0.1:$port/healthz" >/dev/null 2>&1 && return 0
+    i=$((i + 1)); sleep 2
+  done
+  return 1
+}
+component_health() {
+  component=$1
+  if [ "$component" = proxyhub ]; then
+    health
+    return
+  fi
+  i=0
+  while [ "$i" -lt 45 ]; do
+    if dc exec -T sub-store node -e \
+      "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))" \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1)); sleep 2
+  done
+  return 1
+}
+validate_component() {
+  case "${1:-}" in
+    proxyhub|sub-store) ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_service() {
+  validate_component "$1"
+  echo "$1"
+}
+component_volume() {
+  case "$1" in
+    proxyhub) volume_name 1 ;;
+    sub-store) volume_name 2 ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_archive_name() {
+  case "$1" in
+    proxyhub) echo proxyhub-data.tgz ;;
+    sub-store) echo substore-data.tgz ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_env_key() {
+  case "$1" in
+    proxyhub) echo PROXYHUB_IMAGE ;;
+    sub-store) echo SUBSTORE_IMAGE ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_default_image() {
+  case "$1" in
+    proxyhub) echo ghcr.io/vonzhen/proxyhub:dev ;;
+    sub-store) echo xream/sub-store:2.36.21 ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+get_env() {
+  key=$1 default=$2
+  value=$(sed -n "s/^${key}=//p" "$ENV_FILE" | tail -1)
+  printf '%s\n' "${value:-$default}"
+}
+volume_name() {
+  case "$1" in
+    1) echo proxyhub-data ;;
+    2) echo proxyhub-substore-data ;;
+    *) die "unknown volume index" ;;
+  esac
+}
+archive_volume() {
+  volume=$1 output=$2
+  docker run --rm -v "$volume:/source:ro" -v "$(dirname "$output"):/backup" alpine:3.22 \
+    sh -c "cd /source && tar czf /backup/$(basename "$output") ."
+}
+restore_volume() {
+  volume=$1 input=$2
+  docker run --rm -v "$volume:/target" -v "$(dirname "$input"):/backup:ro" alpine:3.22 \
+    sh -c "find /target -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar xzf /backup/$(basename "$input") -C /target"
+}
+set_env() {
+  key=$1 value=$2 tmp="$ENV_FILE.tmp"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found=0 } $0 ~ ("^" key "=") { print key "=" value; found=1; next }
+    { print } END { if (!found) print key "=" value }
+  ' "$ENV_FILE" >"$tmp"
+  mv "$tmp" "$ENV_FILE"
+}
+
+install_cmd() {
+  need docker
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+  mkdir -p "$(dirname "$ENV_FILE")" "$BACKUP_DIR" "$STATE_DIR" "$LOG_DIR"
+  if [ ! -f "$ENV_FILE" ]; then
+    need openssl
+    cp "$DEPLOY_DIR/.env.example" "$ENV_FILE"
+    set_env SESSION_SECRET "$(openssl rand -hex 32)"
+    set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)"
+    set_env PROXYHUB_IMAGE "ghcr.io/vonzhen/proxyhub:dev"
+    set_env AUTO_UPDATE_ENABLED "false"
+    chmod 600 "$ENV_FILE"
+  fi
+  dc pull
+  dc up -d
+  health || { dc logs proxyhub; die "health check failed"; }
+  echo "ProxyHub installed at http://127.0.0.1:$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)/proxyhub/"
+}
+backup_cmd() {
+  ensure_env; mkdir -p "$BACKUP_DIR"
+  name=${1:-"proxyhub-$(now)"}
+  target="$BACKUP_DIR/$name"; mkdir -p "$target"
+  cp "$ENV_FILE" "$target/env"
+  running=$(dc ps -q)
+  [ -z "$running" ] || dc stop
+  failed=false
+  archive_volume "$(volume_name 1)" "$target/proxyhub-data.tgz" || failed=true
+  archive_volume "$(volume_name 2)" "$target/substore-data.tgz" || failed=true
+  if [ -n "$running" ]; then
+    dc start
+    health || failed=true
+  fi
+  [ "$failed" = false ] || die "backup failed"
+  echo "$target"
+}
+restore_cmd() {
+  ensure_env; target=${1:-}; [ -d "$target" ] || die "backup directory required"
+  [ -f "$target/proxyhub-data.tgz" ] && [ -f "$target/substore-data.tgz" ] || die "invalid backup"
+  dc down
+  restore_volume "$(volume_name 1)" "$target/proxyhub-data.tgz"
+  restore_volume "$(volume_name 2)" "$target/substore-data.tgz"
+  cp "$target/env" "$ENV_FILE"
+  dc up -d
+  health || die "restore health check failed"
+}
+component_backup_cmd() {
+  component=$1 name=$2
+  validate_component "$component"
+  mkdir -p "$BACKUP_DIR"
+  target="$BACKUP_DIR/$name"; mkdir -p "$target"
+  key=$(component_env_key "$component")
+  get_env "$key" "$(component_default_image "$component")" >"$target/image"
+  service=$(component_service "$component")
+  running=$(dc ps -q "$service")
+  [ -z "$running" ] || dc stop "$service"
+  failed=false
+  archive_volume "$(component_volume "$component")" \
+    "$target/$(component_archive_name "$component")" || failed=true
+  if [ -n "$running" ]; then
+    dc start "$service" || failed=true
+    component_health "$component" || failed=true
+  fi
+  [ "$failed" = false ] || die "$component backup failed"
+  echo "$target"
+}
+component_restore_cmd() {
+  component=$1 target=$2
+  validate_component "$component"
+  archive="$target/$(component_archive_name "$component")"
+  [ -f "$archive" ] && [ -f "$target/image" ] || die "invalid $component backup"
+  service=$(component_service "$component")
+  key=$(component_env_key "$component")
+  dc stop "$service"
+  restore_volume "$(component_volume "$component")" "$archive"
+  set_env "$key" "$(cat "$target/image")"
+  dc up -d --no-deps "$service"
+  component_health "$component" || die "$component restore health check failed"
+}
+validate_image() {
+  component=$1 image=$2
+  case "$image" in *[!A-Za-z0-9_./:@-]*) die "invalid image reference" ;; esac
+  case "$component:$image" in
+    proxyhub:ghcr.io/vonzhen/proxyhub:*|proxyhub:ghcr.io/vonzhen/proxyhub@sha256:*) ;;
+    sub-store:xream/sub-store:*|sub-store:xream/sub-store@sha256:*) ;;
+    *) die "image repository is not approved for $component" ;;
+  esac
+}
+
+latest_proxyhub_tag() {
+  if command -v curl >/dev/null 2>&1; then
+    metadata=$(curl -fsSL --connect-timeout 15 \
+      https://api.github.com/repos/Vonzhen/proxyhub/releases/latest)
+  elif command -v wget >/dev/null 2>&1; then
+    metadata=$(wget -qO- \
+      https://api.github.com/repos/Vonzhen/proxyhub/releases/latest)
+  else
+    die "curl or wget is required for version discovery"
+  fi
+  tag=$(printf '%s\n' "$metadata" |
+    sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' |
+    head -1)
+  [ -n "$tag" ] || die "no stable ProxyHub release is available"
+  printf '%s\n' "$tag"
+}
+
+candidate_tag() {
+  component=$1 version=$2 image=$3
+  if [ -n "$image" ]; then
+    validate_image "$component" "$image"
+    printf '%s\n' "$image"
+    return
+  fi
+  if [ "$component" = proxyhub ]; then
+    if [ -n "$version" ]; then
+      case "$version" in v*) tag=$version ;; *) tag=v$version ;; esac
+    else
+      tag=$(latest_proxyhub_tag)
+    fi
+    image=ghcr.io/vonzhen/proxyhub:$tag
+  else
+    tag=${version:-latest}
+    image=xream/sub-store:$tag
+  fi
+  validate_image "$component" "$image"
+  printf '%s\n' "$image"
+}
+
+resolve_image_digest() {
+  component=$1 image=$2
+  validate_image "$component" "$image"
+  case "$image" in *@sha256:*) printf '%s\n' "$image"; return ;; esac
+  docker pull "$image" >&2
+  case "$component" in
+    proxyhub) repository=ghcr.io/vonzhen/proxyhub ;;
+    sub-store) repository=xream/sub-store ;;
+  esac
+  digest=$(docker image inspect "$image" \
+    --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+    sed -n "\|^${repository}@sha256:|p" |
+    head -1)
+  [ -n "$digest" ] || die "could not resolve immutable digest for $image"
+  printf '%s\n' "$digest"
+}
+
+confirm_update() {
+  component=$1 current=$2 target=$3 assume_yes=$4
+  echo "Component: $component"
+  echo "Current:   $current"
+  echo "Target:    $target"
+  [ "$assume_yes" = true ] && return
+  [ -t 0 ] || die "confirmation required; rerun with --yes"
+  printf 'Continue with backup and update? [y/N] '
+  read -r answer
+  case "$answer" in y|Y|yes|YES) ;; *) die "update cancelled" ;; esac
+}
+
+perform_update() {
+  component=$1 image=$2
+  snapshot=$(component_backup_cmd "$component" "pre-update-$component-$(now)")
+  mkdir -p "$STATE_DIR"
+  printf '%s\n' "$snapshot" >"$STATE_DIR/$component-last-backup"
+  set_env "$(component_env_key "$component")" "$image"
+  update_failed=false
+  if [ "$component" = proxyhub ]; then
+    dc pull proxyhub &&
+      dc up -d --no-deps proxyhub &&
+      component_health proxyhub || update_failed=true
+  else
+    dc pull sub-store &&
+      dc up -d --no-deps sub-store &&
+      component_health sub-store || update_failed=true
+  fi
+  if [ "$update_failed" = true ]; then
+    echo "$component update failed; rolling back" >&2
+    component_restore_cmd "$component" "$snapshot"
+    return 1
+  fi
+  echo "$component update successful. Rollback point: $snapshot"
+}
+
+legacy_update_cmd() {
+  proxy_image= substore_image= confirm=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --proxyhub-image) proxy_image=${2:-}; shift 2 ;;
+      --substore-image) substore_image=${2:-}; shift 2 ;;
+      --confirm-substore) confirm=true; shift ;;
+      *) die "unknown legacy update option: $1" ;;
+    esac
+  done
+  [ -n "$proxy_image$substore_image" ] || die "an image option is required"
+  [ -z "$proxy_image" ] || [ -z "$substore_image" ] ||
+    die "update one component at a time"
+  if [ -n "$proxy_image" ]; then
+    component=proxyhub; image=$proxy_image
+  else
+    component=sub-store; image=$substore_image
+    [ "$confirm" = true ] ||
+      die "Sub-Store update requires --confirm-substore"
+  fi
+  validate_image "$component" "$image"
+  perform_update "$component" "$image"
+}
+
+update_cmd() {
+  ensure_env
+  case "${1:-}" in
+    --*) legacy_update_cmd "$@"; return ;;
+  esac
+  component=${1:-}; shift || true
+  validate_component "$component"
+  version= image= assume_yes=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --version) version=${2:-}; shift 2 ;;
+      --image) image=${2:-}; shift 2 ;;
+      --yes) assume_yes=true; shift ;;
+      *) die "unknown update option: $1" ;;
+    esac
+  done
+  [ -z "$version" ] || [ -z "$image" ] ||
+    die "use either --version or --image"
+  candidate=$(candidate_tag "$component" "$version" "$image")
+  target=$(resolve_image_digest "$component" "$candidate")
+  current=$(get_env "$(component_env_key "$component")" \
+    "$(component_default_image "$component")")
+  echo "Candidate: $candidate"
+  echo "Resolved:  $target"
+  if [ "$current" = "$target" ]; then
+    echo "$component is already current: $target"
+    return
+  fi
+  confirm_update "$component" "$current" "$target" "$assume_yes"
+  perform_update "$component" "$target"
+}
+rollback_cmd() {
+  component=${1:-}
+  validate_component "$component"
+  state="$STATE_DIR/$component-last-backup"
+  [ -f "$state" ] || die "no $component rollback point"
+  component_restore_cmd "$component" "$(cat "$state")"
+}
+check_updates_cmd() {
+  ensure_env
+  requested=${1:-}
+  [ "$#" -le 1 ] || die "check-updates accepts at most one component"
+  [ -z "$requested" ] || validate_component "$requested"
+  failed=false
+  for component in proxyhub sub-store; do
+    [ -z "$requested" ] || [ "$requested" = "$component" ] || continue
+    if candidate=$(candidate_tag "$component" "" "") &&
+      target=$(resolve_image_digest "$component" "$candidate"); then
+      current=$(get_env "$(component_env_key "$component")" \
+        "$(component_default_image "$component")")
+      echo "$component current: $current"
+      echo "$component tag:     $candidate"
+      echo "$component latest:  $target"
+    else
+      echo "$component update check failed" >&2
+      failed=true
+    fi
+  done
+  [ "$failed" = false ]
+}
+uninstall_cmd() {
+  purge=false
+  case "${1:-}" in
+    '') ;;
+    --purge) purge=true ;;
+    *) die "unknown uninstall option: $1" ;;
+  esac
+  if [ "$purge" = true ]; then
+    if [ "$INSTALLED_LAYOUT" = true ]; then
+      [ "$DEPLOY_DIR" = /opt/proxyhub ] ||
+        die "refusing purge: unexpected deployment path"
+      [ "$ENV_FILE" = /etc/proxyhub/proxyhub.env ] ||
+        die "refusing purge: unexpected configuration path"
+      [ "$DATA_DIR" = /var/lib/proxyhub ] ||
+        die "refusing purge: unexpected data path"
+      [ "$LOG_DIR" = /var/log/proxyhub ] ||
+        die "refusing purge: unexpected log path"
+      [ "$COMPOSE_FILE" = /opt/proxyhub/compose.yaml ] ||
+        die "refusing purge: unexpected Compose path"
+    fi
+    echo "Permanent deletion targets:"
+    echo "  $DEPLOY_DIR"
+    echo "  $ENV_FILE"
+    echo "  $DATA_DIR"
+    echo "  $LOG_DIR"
+    echo "  Docker volumes: proxyhub-data, proxyhub-substore-data"
+    if [ "${PROXYHUB_PURGE_CONFIRM:-}" != "DELETE" ]; then
+      [ -t 0 ] || die "set PROXYHUB_PURGE_CONFIRM=DELETE to purge"
+      printf 'Type DELETE to continue: '
+      read -r answer
+      [ "$answer" = "DELETE" ] || die "purge cancelled"
+    fi
+    dc down --volumes --remove-orphans
+    if [ "$INSTALLED_LAYOUT" = true ]; then
+      if [ -L /usr/local/bin/proxyhub ] &&
+        [ "$(readlink /usr/local/bin/proxyhub)" = "$DEPLOY_DIR/proxyhub" ]; then
+        rm -f /usr/local/bin/proxyhub
+      fi
+      rm -rf /opt/proxyhub /etc/proxyhub /var/lib/proxyhub /var/log/proxyhub
+    else
+      rm -f "$ENV_FILE"
+    fi
+    echo "ProxyHub data was permanently deleted. Docker was retained."
+  else
+    dc down --remove-orphans
+    if [ "$INSTALLED_LAYOUT" = true ]; then
+      if [ -L /usr/local/bin/proxyhub ] &&
+        [ "$(readlink /usr/local/bin/proxyhub)" = "$DEPLOY_DIR/proxyhub" ]; then
+        rm -f /usr/local/bin/proxyhub
+      fi
+      rm -f \
+        "$DEPLOY_DIR/compose.yaml" \
+        "$DEPLOY_DIR/.env.example" \
+        "$DEPLOY_DIR/proxyhub" \
+        "$DEPLOY_DIR/VERSION"
+      rmdir "$DEPLOY_DIR" 2>/dev/null || true
+      echo "Containers and deployment files removed."
+      echo "Configuration, backups, state, logs and Docker volumes retained."
+      echo "Reinstall with the published install.sh to reuse existing data."
+    else
+      echo "Containers removed; volumes, .env and backups retained."
+    fi
+  fi
+}
+lifecycle_cmd() {
+  action=$1; shift
+  component=${1:-}
+  if [ -z "$component" ]; then
+    case "$action" in
+      start) dc up -d ;;
+      stop|restart) dc "$action" ;;
+      status) dc ps ;;
+    esac
+    return
+  fi
+  [ "$#" -eq 1 ] || die "$action accepts at most one component"
+  validate_component "$component"
+  case "$action" in
+    start) dc up -d --no-deps "$component" ;;
+    stop|restart) dc "$action" "$component" ;;
+    status) dc ps "$component" ;;
+  esac
+}
+logs_cmd() {
+  component=${1:-}
+  case "$component" in
+    proxyhub|sub-store) shift; dc logs "$@" "$component" ;;
+    ''|-*) dc logs "$@" ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+
+command=${1:-help}; shift || true
+case "$command" in
+  install) install_cmd "$@" ;;
+  start|stop|restart|status) ensure_env; lifecycle_cmd "$command" "$@" ;;
+  logs) ensure_env; logs_cmd "$@" ;;
+  backup) backup_cmd "${1:-}" ;;
+  restore) restore_cmd "${1:-}" ;;
+  update) update_cmd "$@" ;;
+  check-updates) check_updates_cmd "$@" ;;
+  rollback) rollback_cmd "$@" ;;
+  uninstall) uninstall_cmd "$@" ;;
+  help|-h|--help) echo "Usage: proxyhub {install|start|stop|restart|status|logs|backup|restore|check-updates|update|rollback|uninstall} [proxyhub|sub-store]" ;;
+  *) die "unknown command: $command" ;;
+esac

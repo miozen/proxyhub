@@ -1,0 +1,70 @@
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createHealthRouter } from './modules/health/routes.js';
+import { createAuth } from './modules/auth/service.js';
+import { createAuthRouter } from './modules/auth/routes.js';
+import { createUserRouter } from './modules/users/routes.js';
+import { createSingboxService } from './modules/singbox/service.js';
+import { createSingboxRouter } from './modules/singbox/routes.js';
+import { createSubstoreService } from './modules/substore/service.js';
+import { createSubstoreRouter } from './modules/substore/routes.js';
+import { mountSubstoreProxy } from './modules/substore/proxy.js';
+
+export function createApp({
+  config, database, probeSubstore, singboxFetch, substoreTransport, substoreNow
+}) {
+  const app = express();
+  const webRoot = fileURLToPath(new URL('./web/', import.meta.url));
+
+  app.disable('x-powered-by');
+  app.set('trust proxy', config.trustProxy);
+  app.use((request, response, next) => {
+    if (
+      request.path === '/proxyhub' || request.path.startsWith('/proxyhub/') ||
+      request.path === '/healthz' || request.path.startsWith('/healthz/') ||
+      request.path === '/api' || request.path.startsWith('/api/')
+    ) {
+      response.set({
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'"
+      });
+    }
+    next();
+  });
+  const auth = createAuth({ database, config });
+  const singbox = createSingboxService({ database, config, fetchJson: singboxFetch });
+  const substore = createSubstoreService({
+    database, config, transport: substoreTransport, now: substoreNow
+  });
+  app.use('/api', express.json({ limit: '1mb' }));
+
+  app.use('/healthz', createHealthRouter({ database, config, probeSubstore }));
+  app.use('/api/auth', createAuthRouter({ database, config, auth }));
+  app.use('/api', createSingboxRouter({ database, config, auth, service: singbox }));
+  app.use('/api', createUserRouter({ database, config, auth }));
+  app.use('/api/admin/substore', createSubstoreRouter({ auth, service: substore }));
+
+  app.get('/proxyhub/vendor/vue.js', (_request, response) => {
+    response.sendFile(path.resolve('node_modules/vue/dist/vue.global.prod.js'));
+  });
+  app.use('/proxyhub', express.static(webRoot));
+  app.get('/proxyhub', (_request, response) => response.redirect('/proxyhub/'));
+  app.get('/proxyhub/', (_request, response) => response.sendFile(path.join(webRoot, 'index.html')));
+
+  mountSubstoreProxy(app, { auth, config, service: substore });
+
+  app.use((_request, response) => {
+    response.status(404).json({ error: 'not_found' });
+  });
+
+  return app;
+}
+
+
+
+
+
+

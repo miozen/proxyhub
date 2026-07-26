@@ -1,0 +1,225 @@
+name: check
+
+on:
+  push:
+    branches: [dev, master]
+  pull_request:
+    branches: [dev, master]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.scope.outputs.docker }}
+      operations: ${{ steps.scope.outputs.operations }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select targeted checks
+        id: scope
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] ||
+            ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          files="$(git diff --name-only "$base" "$GITHUB_SHA")"
+          printf '%s\n' "$files"
+
+          docker=false
+          operations=false
+          while IFS= read -r file; do
+            case "$file" in
+              Dockerfile|package.json|package-lock.json|.env.example|docker-compose.yml|\
+              src/*|ops/*|deploy/*|scripts/p5-compose-smoke.js|\
+              .github/workflows/check.yml|.github/workflows/image.yml)
+                docker=true
+                ;;
+            esac
+            case "$file" in
+              .env.example|ops/*|deploy/*|install.sh|\
+              scripts/build-deployment-assets.sh|.github/workflows/check.yml)
+                operations=true
+                ;;
+            esac
+          done <<<"$files"
+
+          echo "docker=$docker" >>"$GITHUB_OUTPUT"
+          echo "operations=$operations" >>"$GITHUB_OUTPUT"
+
+  deployment-assets:
+    needs: changes
+    if: needs.changes.outputs.operations == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable deployment assets
+        run: |
+          chmod +x scripts/build-deployment-assets.sh
+          scripts/build-deployment-assets.sh "dev-${GITHUB_SHA}" dist
+      - name: Verify checksum and exact archive contents
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          tar -tzf "proxyhub-deploy-dev-${GITHUB_SHA}.tar.gz" | sort >contents.txt
+          printf '%s\n' .env.example VERSION compose.yaml proxyhub | sort >expected.txt
+          diff -u expected.txt contents.txt
+          sh -n install.sh
+          ./install.sh --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proxyhub-deployment-${{ github.sha }}
+          path: |
+            dist/proxyhub-deploy-dev-${{ github.sha }}.tar.gz
+            dist/SHA256SUMS
+            dist/install.sh
+          if-no-files-found: error
+          retention-days: 14
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run ci
+      - run: npm audit --audit-level=high
+      - name: Validate operations command
+        run: |
+          sh -n ops/proxyhub
+          sh -n install.sh
+          sh -n scripts/build-deployment-assets.sh
+
+  docker:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    env:
+      SESSION_SECRET: ci-session-secret-with-at-least-32-characters
+      DATA_ENCRYPTION_KEY: ci-encryption-key-with-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: proxyhub:ci
+      - name: Validate Compose
+        run: |
+          docker compose config --quiet
+          docker compose \
+            --env-file .env.example \
+            -f deploy/compose.yaml \
+            config --quiet
+      - name: Run pinned Sub-Store integration smoke
+        run: |
+          cp .env.example .env
+          docker compose up -d --build
+          node scripts/p5-compose-smoke.js
+          substore_id="$(docker compose ps -q sub-store)"
+          test "$(docker inspect "$substore_id" --format '{{len .HostConfig.PortBindings}}')" = "0"
+      - name: Exercise backup and failed-update rollback
+        run: |
+          chmod +x ops/proxyhub
+          ln -s "$PWD/ops/proxyhub" /tmp/proxyhub
+          backup_path="$(/tmp/proxyhub backup ci-smoke)"
+          test -s "$backup_path/proxyhub-data.tgz"
+          test -s "$backup_path/substore-data.tgz"
+          proxyhub_id="$(docker compose ps -q proxyhub)"
+          substore_id="$(docker compose ps -q sub-store)"
+          /tmp/proxyhub restart proxyhub
+          test "$(docker compose ps -q sub-store)" = "$substore_id"
+          /tmp/proxyhub restart sub-store
+          test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
+          /tmp/proxyhub status proxyhub
+          /tmp/proxyhub status sub-store
+          if /tmp/proxyhub start unknown; then
+            echo "Invalid component unexpectedly succeeded"
+            exit 1
+          fi
+          substore_id="$(docker compose ps -q sub-store)"
+          if /tmp/proxyhub update --proxyhub-image ghcr.io/vonzhen/proxyhub:missing-ci; then
+            echo "Injected update failure unexpectedly succeeded"
+            exit 1
+          fi
+          test "$(docker compose ps -q sub-store)" = "$substore_id"
+          P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          proxyhub_id="$(docker compose ps -q proxyhub)"
+          if /tmp/proxyhub update --substore-image xream/sub-store:missing-ci --confirm-substore; then
+            echo "Injected Sub-Store update failure unexpectedly succeeded"
+            exit 1
+          fi
+          test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
+          P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          if /tmp/proxyhub rollback; then
+            echo "Component-less rollback unexpectedly succeeded"
+            exit 1
+          fi
+          env_checksum="$(sha256sum .env | awk '{print $1}')"
+          proxyhub_volume="$(docker volume inspect proxyhub-data --format '{{.Name}}')"
+          substore_volume="$(docker volume inspect proxyhub-substore-data --format '{{.Name}}')"
+          /tmp/proxyhub uninstall
+          docker volume inspect proxyhub-data proxyhub-substore-data
+          /tmp/proxyhub install
+          test "$(sha256sum .env | awk '{print $1}')" = "$env_checksum"
+          test "$(docker volume inspect proxyhub-data --format '{{.Name}}')" = "$proxyhub_volume"
+          test "$(docker volume inspect proxyhub-substore-data --format '{{.Name}}')" = "$substore_volume"
+          P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          if PROXYHUB_PURGE_CONFIRM=NO /tmp/proxyhub uninstall --purge; then
+            echo "Purge without exact confirmation unexpectedly succeeded"
+            exit 1
+          fi
+          PROXYHUB_PURGE_CONFIRM=DELETE /tmp/proxyhub uninstall --purge
+          if docker volume inspect proxyhub-data proxyhub-substore-data; then
+            echo "Purged volumes unexpectedly remain"
+            exit 1
+          fi
+          cp .env.example .env
+      - name: Scan ProxyHub image
+        uses: anchore/scan-action@v7
+        with:
+          image: proxyhub:ci
+          fail-build: true
+          severity-cutoff: high
+          output-format: table
+      - name: Show Compose logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Stop Compose
+        if: always()
+        run: docker compose down --volumes
+
+  platforms:
+    needs: changes
+    if: needs.changes.outputs.operations == 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate host command on Ubuntu
+        run: sh -n ops/proxyhub
+      - name: Validate runtime on Debian 12
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work node:22-bookworm \
+            sh -c "npm ci && npm run ci && sh -n ops/proxyhub"
+
+
+
+
+

@@ -1,0 +1,8 @@
+.version-list article{display:flex;justify-content:space-between;gap:14px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#0b131e}
+.version-list article.active{border-color:var(--cyan);background:#133039}
+.version-list article span,.version-list article code,.version-list article small{display:block}
+.version-list article code{margin:4px 0;color:#9fc1df}
+.version-list article small{color:var(--muted)}
+.version-list .danger-text{color:var(--red);white-space:normal;word-break:break-word}
+@media(max-width:700px){.version-list article{flex-direction:column}}
+

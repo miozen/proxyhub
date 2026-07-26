@@ -1,0 +1,50 @@
+name: proxyhub
+
+services:
+  proxyhub:
+    image: ${PROXYHUB_IMAGE:?PROXYHUB_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required}
+      DATABASE_PATH: /app/data/proxyhub.db
+      SUBSTORE_ORIGIN: http://sub-store:3000
+      SUBSTORE_UI_ORIGIN: http://sub-store:3001
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - proxyhub-data:/app/data
+    depends_on:
+      - sub-store
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  sub-store:
+    image: ${SUBSTORE_IMAGE:?SUBSTORE_IMAGE is required}
+    restart: unless-stopped
+    volumes:
+      - substore-data:/opt/app/data
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  proxyhub-data:
+    name: proxyhub-data
+  substore-data:
+    name: proxyhub-substore-data
