@@ -48,6 +48,7 @@ jobs:
           security=false
           unit=false
           while IFS= read -r file; do
+            # Only files that affect the runtime image should pay the image-build cost.
             case "$file" in
               Dockerfile|.dockerignore|package.json|package-lock.json|\
               src/*|public/*|scripts/p5-compose-smoke.js)
@@ -305,7 +306,6 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/work" -w /work node:22-bookworm \
             sh -c "npm ci && npm run ci && sh -n ops/proxyhub"
-
 
 
 
