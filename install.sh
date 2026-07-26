@@ -58,7 +58,7 @@ case "$CHANNEL" in stable|dev) ;; *) die "channel must be stable or dev" ;; esac
 case "$PORT" in ''|*[!0-9]*) die "port must be an integer" ;; esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "port must be between 1 and 65535"
 case "$SUBSTORE_VERSION" in
-  ''|*[!A-Za-z0-9._-]*) die "invalid Sub-Store version" ;;
+  ''|*[![:alnum:]._-]*) die "invalid Sub-Store version" ;;
 esac
 
 [ -r /etc/os-release ] || die "unsupported host: missing /etc/os-release"
@@ -151,7 +151,7 @@ prepare_stable_assets() {
     RELEASE_TAG=$(latest_release)
   fi
   [ -n "$RELEASE_TAG" ] || die "could not discover the latest release"
-  case "$RELEASE_TAG" in *[!A-Za-z0-9._-]*) die "invalid release version" ;; esac
+  case "$RELEASE_TAG" in *[![:alnum:]._-]*) die "invalid release version" ;; esac
   VERSION=${RELEASE_TAG#v}
 
   archive_name=proxyhub-deploy-$VERSION.tar.gz
