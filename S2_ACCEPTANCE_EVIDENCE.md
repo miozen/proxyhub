@@ -49,7 +49,19 @@ Status: PASS
 
 ## S2.4 - Sub-Store native workflow
 
-Status: IN_PROGRESS
+Status: PASS
+
+- owner opens the official Sub-Store frontend through ProxyHub;
+- the frontend reaches the resettable random backend path without exposing a
+  Sub-Store host port;
+- native subscription management operates normally in the browser;
+- native backup export and restore complete successfully;
+- restore data reaches the upstream byte-for-byte through the raw proxy;
+- ProxyHub does not duplicate Sub-Store subscription, conversion, sync or
+  backup business logic.
+
+Existing browser evidence and F6R.2/F6S regression evidence were reused; no
+duplicate real-host test was required.
 
 ## S2.5 - Full backup and persistence
 
