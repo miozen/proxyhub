@@ -1,4 +1,4 @@
-const REAL_TYPES = new Set(['shadowsocks', 'vmess', 'vless', 'trojan', 'hysteria', 'hysteria2', 'tuic', 'wireguard', 'socks', 'http']);
+const STRUCTURAL_TYPES = new Set(['selector', 'urltest', 'direct', 'block', 'dns']);
 const FLAGS = { HK: '🇭🇰', SG: '🇸🇬', JP: '🇯🇵', US: '🇺🇸', TW: '🇹🇼' };
 
 export function validateTemplate(config) {
@@ -45,7 +45,7 @@ export function normalizeNodes(payload, bannedPattern) {
     return node;
   }).filter((node) => {
     const tag = String(node?.tag || '');
-    if (!REAL_TYPES.has(node?.type) || banned.test(tag) || /(?:[1-9]\.[1-9]|[2-9]\.\d+)x/i.test(tag) || seen.has(tag)) return false;
+    if (!node?.type || STRUCTURAL_TYPES.has(node.type) || banned.test(tag) || /(?:[1-9]\.[1-9]|[2-9]\.\d+)x/i.test(tag) || seen.has(tag)) return false;
     seen.add(tag);
     return true;
   });

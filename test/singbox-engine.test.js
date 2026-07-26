@@ -28,6 +28,81 @@ test('filters nodes, builds regional groups and injects x_rule', () => {
   assert.equal(result.outbounds.filter((item) => item.tag === 'HK-A').length, 1);
 });
 
+test('preserves AnyTLS and future protocols while excluding structural outbounds', () => {
+  const anytls = {
+    type: 'anytls',
+    tag: 'US-AnyTLS',
+    server: 'anytls.example.com',
+    server_port: 443,
+    password: 'secret',
+    tls: { enabled: true, server_name: 'anytls.example.com' }
+  };
+  const future = {
+    type: 'future-protocol',
+    tag: 'HK-Future',
+    server: 'future.example.com',
+    custom_field: { preserved: true }
+  };
+  const nodes = normalizeNodes({ outbounds: [
+    anytls,
+    future,
+    { type: 'selector', tag: 'Selector', outbounds: ['US-AnyTLS'] },
+    { type: 'urltest', tag: 'URLTest', outbounds: ['US-AnyTLS'] },
+    { type: 'direct', tag: 'Direct' },
+    { type: 'block', tag: 'Block' },
+    { type: 'dns', tag: 'DNS' },
+    { tag: 'Missing-Type' }
+  ] }, 'expired');
+
+  assert.deepEqual(nodes, [anytls, future]);
+});
+
+test('keeps original keyword, multiplier and duplicate-tag cleaning rules', () => {
+  const nodes = normalizeNodes({ outbounds: [
+    { type: 'anytls', tag: 'US-Keep' },
+    { type: 'future-protocol', tag: 'US-Keep' },
+    { type: 'vless', tag: 'US-expired' },
+    { type: 'trojan', tag: 'US-1.5x' },
+    { type: 'hysteria2', tag: 'US-2.0x' },
+    { type: 'shadowsocks', tag: 'US-Normal' }
+  ] }, 'expired');
+
+  assert.deepEqual(nodes.map((node) => node.tag), ['US-Keep', 'US-Normal']);
+});
+
+test('injects AnyTLS and future protocol fields unchanged into generated config', () => {
+  const nodes = normalizeNodes({ outbounds: [
+    {
+      type: 'anytls',
+      tag: 'US-AnyTLS',
+      server: 'anytls.example.com',
+      server_port: 443,
+      password: 'secret',
+      tls: { enabled: true }
+    },
+    {
+      type: 'future-protocol',
+      tag: 'US-Future',
+      future_option: 'preserved'
+    }
+  ] }, 'expired');
+  const { groups, byRegion } = buildRegionalGroups(
+    [{ name: 'SubStore', nodes, allowed_regions: ['US'] }],
+    { US: ['US'] },
+    { url: 'https://www.gstatic.com/generate_204', interval: '3m', tolerance: 150 }
+  );
+  const output = injectTemplate({
+    outbounds: [
+      { type: 'direct', tag: 'DIRECT' },
+      { type: 'selector', tag: 'Select', x_rule: 'region:US', outbounds: [] }
+    ]
+  }, nodes, groups, byRegion);
+
+  assert.deepEqual(output.outbounds.find((node) => node.tag === 'US-AnyTLS'), nodes[0]);
+  assert.deepEqual(output.outbounds.find((node) => node.tag === 'US-Future'), nodes[1]);
+  assert.deepEqual(groups[0].outbounds, ['US-AnyTLS', 'US-Future']);
+});
+
 test('matches the original singbox-center core fixture', () => {
   // Baseline: Vonzhen/singbox-center src/engine.js at badfd389436ed51450ebad6c9fc9c1c2cc717784.
   const nodes = normalizeNodes({ outbounds: [
