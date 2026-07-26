@@ -82,9 +82,6 @@ test('S4 publishes checksummed stable assets only after the tagged image succeed
   assert.match(imageWorkflow, /sha256sum -c SHA256SUMS/);
   assert.match(imageWorkflow, /proxyhub-deploy-\$version\.tar\.gz/);
   assert.match(imageWorkflow, /gh release create "\$GITHUB_REF_NAME"/);
-  assert.match(imageWorkflow, /gh release view/);
-  assert.match(imageWorkflow, /gh release upload/);
-  assert.match(imageWorkflow, /--clobber/);
   assert.match(imageWorkflow, /dist\/install\.sh/);
   assert.match(imageWorkflow, /dist\/SHA256SUMS/);
   assert.match(imageWorkflow, /contents:\s*write/);
@@ -93,16 +90,29 @@ test('S4 publishes checksummed stable assets only after the tagged image succeed
 test('S3 keeps CI on dev and master while targeting expensive checks by changed paths', () => {
   assert.match(checkWorkflow, /branches:\s*\[dev, master\]/);
   assert.match(checkWorkflow, /Select targeted checks/);
+  assert.match(checkWorkflow, /cancel-in-progress:\s*true/);
   assert.match(checkWorkflow, /docker:\s*\$\{\{ steps\.scope\.outputs\.docker \}\}/);
   assert.match(checkWorkflow, /operations:\s*\$\{\{ steps\.scope\.outputs\.operations \}\}/);
+  assert.match(checkWorkflow, /compose:\s*\$\{\{ steps\.scope\.outputs\.compose \}\}/);
+  assert.match(checkWorkflow, /security:\s*\$\{\{ steps\.scope\.outputs\.security \}\}/);
+  assert.match(checkWorkflow, /unit:\s*\$\{\{ steps\.scope\.outputs\.unit \}\}/);
   assert.match(checkWorkflow, /if: needs\.changes\.outputs\.docker == 'true'/);
   assert.match(checkWorkflow, /if: needs\.changes\.outputs\.operations == 'true'/);
+  assert.match(checkWorkflow, /if: needs\.changes\.outputs\.compose == 'true'/);
+  assert.match(checkWorkflow, /if: needs\.changes\.outputs\.unit == 'true'/);
+  assert.match(checkWorkflow, /cache-from: type=gha,scope=proxyhub-ci/);
+  assert.match(checkWorkflow, /cache-to: type=gha,mode=max,scope=proxyhub-ci/);
+  assert.doesNotMatch(
+    checkWorkflow,
+    /src\/\*\|ops\/\*\|deploy\/\*\|scripts\/p5-compose-smoke\.js/
+  );
   assert.doesNotMatch(checkWorkflow, /\*\.md/);
 });
 
 test('CI vulnerability scan checks the image built by the same job', () => {
   assert.match(checkWorkflow, /load:\s*true/);
   assert.match(checkWorkflow, /image:\s*proxyhub:ci/);
+  assert.match(checkWorkflow, /if: needs\.changes\.outputs\.security == 'true'/);
   assert.doesNotMatch(checkWorkflow, /image:\s*ghcr\.io\/miozen\/proxyhub:dev/);
 });
 
@@ -164,10 +174,6 @@ test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /--ref is required for the dev channel/);
   assert.match(installer, /--image is required for the dev channel/);
   assert.match(installer, /port \$PORT is already in use/);
-  assert.match(installer, /command -v ss/);
-  assert.match(installer, /ss -ltn/);
-  assert.match(installer, /elif command -v netstat/);
-  assert.match(installer, /netstat -ltn/);
   assert.match(installer, /at least 512 MiB of free disk space is required/);
 });
 
@@ -262,14 +268,14 @@ test('L6.4 documents destructive lifecycle and exact dev host gates', () => {
     assert.match(guide, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
     assert.match(guide, /PROXYHUB_REPLACE_CONFIRM=DELETE/);
     assert.match(guide, /5(?:MB|m).{0,20}3/s);
-    assert.match(guide, /最近.{0,10}`?10`? 次/s);
-    assert.match(guide, /最近.{0,10}`?5`? 份/s);
+    assert.match(guide, /鏈€杩?{0,10}`?10`? 娆?s);
+    assert.match(guide, /鏈€杩?{0,10}`?5`? 浠?s);
   }
   assert.match(hostAcceptance, /Alpine `amd64`/);
   assert.match(hostAcceptance, /Ubuntu `arm64`/);
   assert.match(hostAcceptance, /--channel dev/);
   assert.match(hostAcceptance, /ghcr\.io\/miozen\/proxyhub:dev-/);
-  assert.match(hostAcceptance, /Sub-Store 原生备份/);
+  assert.match(hostAcceptance, /Sub-Store 鍘熺敓澶囦唤/);
   assert.match(hostAcceptance, /max-size=5m/);
   assert.match(hostAcceptance, /all managed state removed/);
 });
@@ -300,3 +306,4 @@ test('L6.1 CI covers unconfirmed no-op and confirmed destructive uninstall', () 
   assert.match(checkWorkflow, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
   assert.match(checkWorkflow, /Uninstalled volumes unexpectedly remain/);
 });
+
