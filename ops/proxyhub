@@ -335,6 +335,19 @@ resolve_image_digest() {
   printf '%s\n' "$digest"
 }
 
+
+current_image_matches_target() {
+  component=$1 current=$2 target=$3
+  [ "$current" = "$target" ] && return 0
+  container_id=$(dc ps -q "$(component_service "$component")")
+  [ -n "$container_id" ] || return 1
+  current_image_id=$(docker inspect "$container_id" --format '{{.Image}}')
+  target_image_id=$(docker image inspect "$target" --format '{{.Id}}')
+  [ -n "$current_image_id" ] &&
+    [ -n "$target_image_id" ] &&
+    [ "$current_image_id" = "$target_image_id" ]
+}
+
 confirm_update() {
   component=$1 current=$2 target=$3 assume_yes=$4
   echo "Component: $component"
@@ -395,7 +408,7 @@ legacy_update_cmd() {
   target=$(resolve_image_digest "$component" "$image")
   current=$(get_env "$(component_env_key "$component")" \
     "$(component_default_image "$component")")
-  if [ "$current" = "$target" ]; then
+  if current_image_matches_target "$component" "$current" "$target"; then
     echo "$component is already current: $target"
     return
   fi
@@ -426,7 +439,7 @@ update_cmd() {
     "$(component_default_image "$component")")
   echo "Candidate: $candidate"
   echo "Resolved:  $target"
-  if [ "$current" = "$target" ]; then
+  if current_image_matches_target "$component" "$current" "$target"; then
     echo "$component is already current: $target"
     return
   fi
