@@ -82,6 +82,9 @@ test('S4 publishes checksummed stable assets only after the tagged image succeed
   assert.match(imageWorkflow, /sha256sum -c SHA256SUMS/);
   assert.match(imageWorkflow, /proxyhub-deploy-\$version\.tar\.gz/);
   assert.match(imageWorkflow, /gh release create "\$GITHUB_REF_NAME"/);
+  assert.match(imageWorkflow, /gh release view/);
+  assert.match(imageWorkflow, /gh release upload/);
+  assert.match(imageWorkflow, /--clobber/);
   assert.match(imageWorkflow, /dist\/install\.sh/);
   assert.match(imageWorkflow, /dist\/SHA256SUMS/);
   assert.match(imageWorkflow, /contents:\s*write/);
