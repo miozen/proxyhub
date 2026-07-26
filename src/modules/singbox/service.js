@@ -116,7 +116,9 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
 
   function activateTemplate(id) {
     return database.transaction(() => {
-      if (!template(id)) return null;
+      const target = template(id);
+      if (!target) return null;
+      validateTemplate(JSON.parse(target.content_json));
       const previous = database.prepare('SELECT id FROM template_versions WHERE active=1').get();
       database.prepare('UPDATE template_versions SET active=0 WHERE active=1').run();
       database.prepare("UPDATE template_versions SET active=1,status='ready' WHERE id=?").run(id);
@@ -128,38 +130,7 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     return createHash('sha256').update(JSON.stringify(value)).digest('hex');
   }
 
-  async function generate(user) {
-    const generationSettings = settings();
-    const templateRow = database.prepare('SELECT * FROM template_versions WHERE active=1').get();
-    if (!templateRow) throw new Error('active_template_required');
-    const template = JSON.parse(templateRow.content_json);
-    validateTemplate(template);
-    const rows = database.prepare('SELECT * FROM subscriptions WHERE user_id=? AND enabled=1 ORDER BY created_at').all(user.id);
-    const reports = [];
-    const sources = [];
-    await Promise.all(rows.map(async (row) => {
-      try {
-        const payload = await fetchJson(decryptUrl(row.url_encrypted, config.dataEncryptionKey));
-        const nodes = normalizeNodes(payload, generationSettings.banned_keywords);
-        sources.push({ name: row.name, nodes, allowed_regions: JSON.parse(row.allowed_regions_json) });
-        reports.push({ id: row.id, status: 'success', nodes: nodes.length });
-      } catch (error) {
-        reports.push({ id: row.id, status: 'error', error: error.message });
-      }
-    }));
-    const seen = new Set();
-    const nodes = sources.flatMap((source) => source.nodes).filter((node) => !seen.has(node.tag) && seen.add(node.tag));
-    const { groups, byRegion } = buildRegionalGroups(
-      sources, generationSettings.region_keywords, generationSettings.urltest_params
-    );
-    const directTag = template.outbounds.find((outbound) => outbound.type === 'direct')?.tag || '🎯 全球直连';
-    const output = injectTemplate(
-      template, nodes, groups, byRegion, directTag, generationSettings.region_keywords
-    );
-    return { output, summary: { subscriptions: rows.length, nodes: nodes.length, groups: groups.length, reports } };
-  }
-
-  async function testSubscription(subscription) {
+  async function fetchSubscription(subscription, generationSettings = settings()) {
     const startedAt = Date.now();
     const name = String(subscription?.name || '').trim() || '未命名订阅';
     try {
@@ -170,19 +141,170 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
         timeoutMs: 10_000,
         headers: { 'user-agent': 'Mozilla/5.0 (Clash)' }
       });
+      const rawCount = rawNodes(payload).length;
       const nodes = normalizeNodes(payload, generationSettings.banned_keywords);
       return {
         success: true,
+        status: nodes.length ? 'success' : 'warning',
+        id: subscription?.id,
         name,
         duration_ms: Date.now() - startedAt,
-        raw_nodes: rawNodes(payload).length,
+        raw_nodes: rawCount,
         valid_nodes: nodes.length,
+        nodes,
         regions: countRegions(nodes, generationSettings.region_keywords, subscription?.allowed_regions),
         warnings: nodes.length ? [] : ['没有可用节点。']
       };
     } catch (error) {
-      return { success: false, name, duration_ms: Date.now() - startedAt, error: error.message };
+      return {
+        success: false, status: 'error', id: subscription?.id, name,
+        duration_ms: Date.now() - startedAt, raw_nodes: 0, valid_nodes: 0,
+        nodes: [], error: error.message
+      };
     }
+  }
+
+  async function generate(user) {
+    const startedAt = Date.now();
+    const steps = [];
+    const progress = {};
+    const addStep = (name, status, message, details = {}) => steps.push({ name, status, message, details });
+    const abort = (message) => {
+      const error = new Error(message);
+      error.diagnostics = {
+        success: false,
+        error: message,
+        summary: {
+          ...progress,
+          duration_ms: Date.now() - startedAt,
+          warnings: steps.filter((step) => step.status === 'warning').length
+        },
+        steps
+      };
+      throw error;
+    };
+    const generationSettings = settings();
+    const templateRow = database.prepare('SELECT * FROM template_versions WHERE active=1').get();
+    if (!templateRow) {
+      addStep('模板来源', 'error', '请先激活一个模板版本。');
+      abort('active_template_required');
+    }
+    let template;
+    try {
+      template = JSON.parse(templateRow.content_json);
+      validateTemplate(template);
+    } catch (error) {
+      addStep('模板来源', 'error', `活动模板无效：${error.message}`);
+      abort(error.message);
+    }
+    const templateSource = templateRow.source_type === 'remote' ? 'remote_cached' : 'local_sqlite';
+    Object.assign(progress, {
+      template_source: templateSource,
+      template_version: templateRow.id,
+      template_hash: templateRow.content_hash
+    });
+    addStep('模板来源', 'success',
+      templateRow.source_type === 'remote' ? '已使用远程缓存模板版本。' : '已使用 SQLite 本地模板版本。',
+      { source: templateSource, version_id: templateRow.id, content_hash: templateRow.content_hash, created_at: templateRow.created_at });
+
+    const rows = database.prepare('SELECT * FROM subscriptions WHERE user_id=? AND enabled=1 ORDER BY created_at').all(user.id);
+    const subscriptions = rows.map((row) => ({
+      id: row.id, name: row.name,
+      url: decryptUrl(row.url_encrypted, config.dataEncryptionKey),
+      allowed_regions: JSON.parse(row.allowed_regions_json)
+    }));
+    const fetched = await Promise.all(subscriptions.map((subscription) =>
+      fetchSubscription(subscription, generationSettings)));
+    const successCount = fetched.filter((item) => item.status === 'success').length;
+    const warningCount = fetched.filter((item) => item.status === 'warning').length;
+    const failedCount = fetched.filter((item) => item.status === 'error').length;
+    const reports = fetched.map(({ nodes: _nodes, ...report }) => report);
+    Object.assign(progress, {
+      subscriptions: rows.length,
+      successful_subscriptions: successCount,
+      warning_subscriptions: warningCount,
+      failed_subscriptions: failedCount,
+      raw_nodes: reports.reduce((total, report) => total + report.raw_nodes, 0),
+      reports
+    });
+    addStep('订阅源拉取', !rows.length || failedCount || warningCount ? 'warning' : 'success',
+      rows.length
+        ? `启用 ${rows.length} 个，成功 ${successCount} 个，警告 ${warningCount} 个，失败 ${failedCount} 个。`
+        : '没有启用的订阅源，仅验证模板固定配置。',
+      { items: reports });
+
+    const sources = fetched.filter((item) => item.nodes.length).map((item) => ({
+      name: item.name,
+      nodes: item.nodes,
+      allowed_regions: subscriptions.find((subscription) => subscription.id === item.id)?.allowed_regions || []
+    }));
+    const cleanedCount = sources.reduce((total, source) => total + source.nodes.length, 0);
+    const seen = new Set();
+    const nodes = sources.flatMap((source) => source.nodes)
+      .filter((node) => !seen.has(node.tag) && seen.add(node.tag));
+    if (rows.length && !nodes.length) {
+      addStep('节点清洗', 'error', '没有可用于生成配置的有效节点。');
+      abort(failedCount === rows.length ? 'all_subscriptions_failed' : 'no_valid_nodes');
+    }
+    const rawCount = reports.reduce((total, report) => total + report.raw_nodes, 0);
+    Object.assign(progress, { nodes: nodes.length });
+    addStep('节点清洗', 'success', `保留 ${nodes.length} 个有效节点。`, {
+      raw_nodes: rawCount, cleaned_nodes: cleanedCount,
+      duplicate_nodes: cleanedCount - nodes.length, valid_nodes: nodes.length
+    });
+
+    const { groups, byRegion } = buildRegionalGroups(
+      sources, generationSettings.region_keywords, generationSettings.urltest_params
+    );
+    addStep('区域分组', 'success', `生成 ${groups.length} 个 urltest 分组。`, {
+      total: groups.length,
+      regions: Object.fromEntries(Object.keys(generationSettings.region_keywords)
+        .map((region) => [region, byRegion[region]?.length || 0])),
+      urltest: generationSettings.urltest_params
+    });
+    Object.assign(progress, { groups: groups.length });
+
+    const selectorCount = template.outbounds.filter((outbound) => outbound.type === 'selector').length;
+    const directTag = template.outbounds.find((outbound) => outbound.type === 'direct')?.tag || '🎯 全球直连';
+    let output;
+    try {
+      output = injectTemplate(
+        template, nodes, groups, byRegion, directTag, generationSettings.region_keywords
+      );
+    } catch (error) {
+      addStep('策略注入', 'error', `策略注入失败：${error.message}`, { selectors: selectorCount });
+      abort(error.message);
+    }
+    addStep('策略注入', 'success', `处理 ${selectorCount} 个 selector。`, { selectors: selectorCount });
+    addStep('最终配置', 'success', `输出 ${output.outbounds.length} 个 outbound。`, { outbounds: output.outbounds.length });
+    Object.assign(progress, { selectors: selectorCount, outbounds: output.outbounds.length });
+    return {
+      success: true,
+      output,
+      summary: {
+        duration_ms: Date.now() - startedAt,
+        template_source: templateSource,
+        template_version: templateRow.id,
+        template_hash: templateRow.content_hash,
+        subscriptions: rows.length,
+        successful_subscriptions: successCount,
+        warning_subscriptions: warningCount,
+        failed_subscriptions: failedCount,
+        raw_nodes: rawCount,
+        nodes: nodes.length,
+        groups: groups.length,
+        selectors: selectorCount,
+        outbounds: output.outbounds.length,
+        warnings: steps.filter((step) => step.status === 'warning').length,
+        reports
+      },
+      steps
+    };
+  }
+
+  async function testSubscription(subscription) {
+    const { nodes: _nodes, ...report } = await fetchSubscription(subscription);
+    return report;
   }
 
   function saveRun(userId, status, summary, output, error = null) {

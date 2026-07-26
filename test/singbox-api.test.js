@@ -19,14 +19,18 @@ async function call(base, route, { body, ...options } = {}) {
 test('creates template and subscription then generates config by client token', async (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-singbox-'));
   const database = openDatabase(path.join(directory, 'db.sqlite'));
+  const fetchCalls = [];
   const app = createApp({
     config: loadConfig({ NODE_ENV: 'development' }),
     database,
     probeSubstore: async () => ({ reachable: true, status: 200 }),
-    singboxFetch: async () => ({ outbounds: [
-      { type: 'vless', tag: 'CustomRegion-Node' },
-      { type: 'vless', tag: 'DROP-Node' }
-    ] })
+    singboxFetch: async (url, options) => {
+      fetchCalls.push({ url: String(url), options });
+      return { outbounds: [
+        { type: 'vless', tag: 'CustomRegion-Node' },
+        { type: 'vless', tag: 'DROP-Node' }
+      ] };
+    }
   });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
@@ -97,6 +101,23 @@ test('creates template and subscription then generates config by client token', 
   result = await call(base, '/api/admin/singbox-settings', { headers });
   assert.equal(result.body.settings.region_keywords.HK[0], 'CustomRegion');
   assert.equal(result.body.settings.banned_keywords, 'DROP');
+
+  result = await call(base, '/api/generation/test', { method: 'POST', headers });
+  assert.equal(result.body.success, true);
+  assert.deepEqual(result.body.steps.map((step) => step.name), [
+    '模板来源', '订阅源拉取', '节点清洗', '区域分组', '策略注入', '最终配置'
+  ]);
+  assert.equal(result.body.summary.raw_nodes, 2);
+  assert.equal(result.body.summary.nodes, 1);
+  assert.equal(result.body.summary.selectors, 1);
+  assert.ok(fetchCalls.some((item) => new URL(item.url).searchParams.has('t')));
+  assert.ok(fetchCalls.some((item) => item.options?.headers?.['user-agent'] === 'Mozilla/5.0 (Clash)'));
+
+  result = await call(base, `/api/subscriptions/${(await call(base, '/api/subscriptions', { headers })).body.subscriptions[0].id}/enabled`, {
+    method: 'PUT', headers, body: { enabled: false }
+  });
+  assert.equal(result.body.enabled, false);
+  assert.equal((await call(base, '/api/subscriptions', { headers })).body.subscriptions[0].enabled, false);
 });
 
 test('P2 acceptance: isolates failed sources and users and obeys cache fallback', async (context) => {
@@ -165,10 +186,20 @@ test('P2 acceptance: isolates failed sources and users and obeys cache fallback'
     method: 'PUT', headers: memberHeaders, body: { name: 'stolen' }
   });
   assert.equal(result.response.status, 404);
+  result = await call(base, `/api/subscriptions/${good.body.id}/enabled`, {
+    method: 'PUT', headers: memberHeaders, body: { enabled: false }
+  });
+  assert.equal(result.response.status, 404);
   result = await call(base, '/api/subscriptions', { headers: memberHeaders });
   assert.deepEqual(result.body.subscriptions.map((subscription) => subscription.name), ['MemberOnly']);
 
   failAll = true;
+  result = await call(base, '/api/generation/test', { method: 'POST', headers: ownerHeaders });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.success, false);
+  assert.equal(result.body.error, 'all_subscriptions_failed');
+  assert.equal(result.body.steps[1].name, '订阅源拉取');
+  assert.equal(result.body.steps[1].details.items.length, 2);
   database.prepare('UPDATE template_versions SET active=0 WHERE active=1').run();
   result = await call(base, `/api/generate?token=${encodeURIComponent(ownerToken.body.token)}`);
   assert.equal(result.response.status, 200);

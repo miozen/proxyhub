@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/proxyhub/substore.css">
   <link rel="stylesheet" href="/proxyhub/templates.css">
   <link rel="stylesheet" href="/proxyhub/subscription-test.css">
+  <link rel="stylesheet" href="/proxyhub/f6u.css">
 </head>
 <body>
   <div id="app" v-cloak>
@@ -60,13 +61,66 @@
 
         <section v-if="page==='subscriptions'" class="content">
           <div class="panel"><div class="panel-head"><div><p class="eyebrow">SOURCES</p><h3>订阅源</h3></div><button class="primary" @click="editSubscription()">＋ 添加订阅</button></div>
-            <div class="card-list"><article v-for="sub in subscriptions" :key="sub.id" class="source-card"><div><div class="source-title"><i :class="{on:sub.enabled}"></i><strong>{{ sub.name }}</strong></div><code>{{ maskUrl(sub.url) }}</code><div class="chips"><span v-for="r in sub.allowed_regions" :key="r">{{ r }}</span></div></div><div class="actions"><button @click="testSubscription(sub)">测试</button><button @click="editSubscription(sub)">编辑</button><button class="danger" @click="removeSubscription(sub)">删除</button></div></article><div v-if="!subscriptions.length" class="empty">尚未添加订阅源</div></div>
+            <div class="card-list">
+              <article v-for="sub in subscriptions" :key="sub.id" class="source-card">
+                <div class="source-main">
+                  <div class="source-title"><i :class="{on:sub.enabled}"></i><strong>{{ sub.name }}</strong><span class="badge" :class="{active:sub.enabled}">{{ sub.enabled?'已启用':'已停用' }}</span></div>
+                  <code>{{ maskUrl(sub.url) }}</code>
+                  <div class="chips"><span v-for="r in sub.allowed_regions" :key="r">{{ r }}</span></div>
+                </div>
+                <div class="source-actions">
+                  <div class="inline-switch">
+                    <span>{{ sub.enabled?'启用':'停用' }}</span>
+                    <button :id="'subscription-list-enabled-'+sub.id" type="button" class="switch" :class="{on:sub.enabled}" :disabled="subscriptionToggles[sub.id]" @click="toggleSubscription(sub)" :aria-label="`${sub.enabled?'停用':'启用'}订阅 ${sub.name}`"><i></i></button>
+                  </div>
+                  <div class="actions">
+                    <button :disabled="subscriptionBusy[sub.id]" @click="testSubscription(sub)">{{ subscriptionBusy[sub.id]?'测试中...':'测试' }}</button>
+                    <button v-if="subscriptionTests[sub.id]" @click="toggleSubscriptionReport(sub)">{{ subscriptionTests[sub.id].expanded?'收起':'结果' }}</button>
+                    <button @click="editSubscription(sub)">编辑</button>
+                    <button class="danger" @click="removeSubscription(sub)">删除</button>
+                  </div>
+                </div>
+                <div v-if="subscriptionTests[sub.id]?.expanded" class="test-report source-test-report" :class="{error:!subscriptionTests[sub.id].success}">
+                  <template v-if="subscriptionTests[sub.id].success">
+                    <div class="report-heading"><strong>{{ subscriptionTests[sub.id].name }}</strong><small>{{ formatTime(subscriptionTests[sub.id].tested_at) }}</small></div>
+                    <span>耗时 {{ subscriptionTests[sub.id].duration_ms }} ms</span>
+                    <span>原始节点 {{ subscriptionTests[sub.id].raw_nodes }} / 有效节点 {{ subscriptionTests[sub.id].valid_nodes }}</span>
+                    <div class="chips"><span v-for="r in regions" :key="r">{{ r }} {{ subscriptionTests[sub.id].regions[r] || 0 }}</span><span>未匹配 {{ subscriptionTests[sub.id].regions.unmatched || 0 }}</span></div>
+                    <p v-for="warning in subscriptionTests[sub.id].warnings" :key="warning">{{ warning }}</p>
+                  </template>
+                  <template v-else><strong>测试失败</strong><span>{{ subscriptionTests[sub.id].error }}</span><small>{{ formatTime(subscriptionTests[sub.id].tested_at) }}</small></template>
+                </div>
+              </article>
+              <div v-if="!subscriptions.length" class="empty">尚未添加订阅源</div>
+            </div>
           </div>
         </section>
 
         <section v-if="page==='generation'" class="content split">
           <div class="panel"><div class="panel-head"><div><p class="eyebrow">CLIENT TOKEN</p><h3>客户端订阅地址</h3></div></div><p class="muted">地址会持续保留并显示，只有手动重置后才会变化；重置会使旧地址立即失效。</p><div class="token-box">{{ generatedUrl || '现有 Token 无法显示，请手动重置一次' }}</div><div class="actions"><button class="primary" @click="resetToken">重置 Token</button><button :disabled="!generatedUrl" @click="copy(generatedUrl)">复制地址</button></div></div>
-          <div class="panel"><div class="panel-head"><div><p class="eyebrow">DRY RUN</p><h3>测试配置生成</h3></div></div><p class="muted">立即读取启用的订阅并展示生成摘要，不影响客户端 Token。</p><button class="primary" @click="testGeneration">开始测试</button><pre v-if="generationResult">{{ JSON.stringify(generationResult.summary, null, 2) }}</pre></div>
+          <div class="panel generation-test"><div class="panel-head"><div><p class="eyebrow">DRY RUN</p><h3>测试配置生成</h3></div></div><p class="muted">按模板来源、订阅源拉取、节点清洗、区域分组、策略注入和最终配置分步检查，不影响客户端 Token。</p><button class="primary" :disabled="generationTesting" @click="testGeneration">{{ generationTesting?'测试中...':'测试生成' }}</button><small v-if="generationTestedAt" class="muted">最近测试：{{ formatTime(generationTestedAt) }}</small></div>
+          <div v-if="generationResult" class="panel full generation-report">
+            <div class="panel-head"><div><p class="eyebrow">REPORT</p><h3>配置生成测试</h3></div><span class="badge" :class="generationResult.success?'active':'rejected'">{{ generationResult.success?'完成':'失败' }}</span></div>
+            <div class="report-stats">
+              <article><span>耗时</span><strong>{{ generationResult.summary.duration_ms || 0 }}ms</strong></article>
+              <article><span>模板来源</span><strong>{{ generationResult.summary.template_source || '—' }}</strong></article>
+              <article><span>节点</span><strong>{{ generationResult.summary.nodes || 0 }}</strong></article>
+              <article><span>分组</span><strong>{{ generationResult.summary.groups || 0 }}</strong></article>
+              <article><span>警告</span><strong>{{ generationResult.summary.warnings || 0 }}</strong></article>
+            </div>
+            <div class="step-list">
+              <article v-for="step in generationResult.steps" :key="step.name" class="report-step" :class="step.status">
+                <div class="report-heading"><div><strong>{{ step.name }}</strong><p>{{ step.message }}</p></div><span class="badge" :class="step.status">{{ step.status }}</span></div>
+                <div v-if="step.name==='订阅源拉取' && step.details.items" class="subscription-report-list">
+                  <div v-for="item in step.details.items" :key="item.id || item.name" class="subscription-report-item">
+                    <strong>{{ item.name }}</strong><span>原始 {{ item.raw_nodes }} / 有效 {{ item.valid_nodes }}</span><span class="badge" :class="item.status">{{ item.status }}</span><small v-if="item.error || item.warnings?.length">{{ item.error || item.warnings.join('；') }}</small>
+                  </div>
+                </div>
+                <div v-if="step.name==='区域分组' && step.details.regions" class="chips"><span v-for="(count,region) in step.details.regions" :key="region">{{ region }} {{ count }}</span></div>
+              </article>
+            </div>
+            <details><summary>查看原始诊断报告</summary><pre>{{ JSON.stringify({summary:generationResult.summary,steps:generationResult.steps}, null, 2) }}</pre></details>
+          </div>
           <div class="panel full"><div class="panel-head"><h3>生成历史</h3></div><run-table :runs="runs"></run-table></div>
         </section>
 
@@ -93,7 +147,7 @@
         </section>
 
         <section v-if="page==='templates' && isOwner" class="content split">
-          <div class="panel"><div class="panel-head"><div><p class="eyebrow">VERSIONS</p><h3>模板版本</h3></div></div><div class="version-list"><article v-for="tpl in templates" :key="tpl.id" :class="{active:tpl.active}"><div><span>{{ tpl.source_type }} · {{ tpl.status }}</span><code>{{ tpl.content_hash.slice(0,12) }}</code><small>{{ formatTime(tpl.created_at) }}</small><small v-if="tpl.last_error" class="danger-text">{{ tpl.last_error }}</small></div><div class="actions compact"><button @click="editTemplate(tpl)">编辑为新版本</button><button v-if="tpl.source_type==='remote'" @click="refreshTemplate(tpl)">刷新</button><button v-if="!tpl.active" @click="activateTemplate(tpl)">激活</button><button v-if="!tpl.active" @click="rollbackTemplate(tpl)">回滚</button><span v-if="tpl.active" class="badge active">使用中</span></div></article><div v-if="!templates.length" class="empty">尚无模板</div></div></div>
+          <div class="panel"><div class="panel-head"><div><p class="eyebrow">VERSIONS</p><h3>模板版本</h3><p class="muted">可保留多个版本；配置生成始终使用标记为“当前使用”的版本。</p></div></div><div class="version-list"><article v-for="tpl in templates" :key="tpl.id" :class="{active:tpl.active}"><div><span>{{ tpl.source_type==='remote'?'远程缓存':'本地 SQLite' }} · {{ tpl.status }}</span><code>ID {{ tpl.id.slice(0,8) }} · {{ tpl.content_hash.slice(0,12) }}</code><small>{{ formatTime(tpl.created_at) }}</small><small v-if="tpl.parent_id">上级版本 {{ tpl.parent_id.slice(0,8) }}</small><small v-if="tpl.last_error" class="danger-text">{{ tpl.last_error }}</small></div><div class="actions compact"><button @click="editTemplate(tpl)">编辑为新版本</button><button v-if="tpl.source_type==='remote'" @click="refreshTemplate(tpl)">刷新远程版本</button><button v-if="!tpl.active" @click="switchTemplate(tpl)">切换到此版本</button><span v-if="tpl.active" class="badge active">当前使用</span></div></article><div v-if="!templates.length" class="empty">尚无模板，请先导入并激活一个版本</div></div></div>
           <form class="panel" @submit.prevent="createTemplate"><div class="panel-head"><h3>{{ templateForm.parent_id?'编辑为新版本':'导入模板' }}</h3><button v-if="templateForm.parent_id" type="button" @click="cancelTemplateEdit">取消编辑</button></div><label for="template-source-type">来源</label><select id="template-source-type" v-model="templateForm.source_type" name="source_type"><option value="local">本地 JSON</option><option value="remote">远程 URL</option></select><label v-if="templateForm.source_type==='remote'" for="template-source-url">远程地址</label><input v-if="templateForm.source_type==='remote'" id="template-source-url" v-model="templateForm.source_url" name="source_url" type="url" autocomplete="url" required><label for="template-content">模板 JSON</label><textarea id="template-content" v-model="templateForm.content" name="content" rows="15" :placeholder="templateForm.source_type==='remote'?'留空则从远程地址拉取':'粘贴模板 JSON'" :required="templateForm.source_type==='local'"></textarea><button class="primary">保存为新版本</button></form>
         </section>
 
@@ -132,7 +186,7 @@
       </section>
     </div>
 
-    <div v-if="subscriptionModal" class="modal-backdrop" @click.self="subscriptionModal=null"><form class="modal" @submit.prevent="saveSubscription"><div class="panel-head"><h3>{{ subscriptionForm.id?'编辑':'添加' }}订阅</h3><button type="button" @click="subscriptionModal=null">×</button></div><label for="subscription-name">名称</label><input id="subscription-name" v-model.trim="subscriptionForm.name" name="name" required maxlength="80"><label for="subscription-url">订阅 URL</label><input id="subscription-url" v-model.trim="subscriptionForm.url" name="url" type="url" autocomplete="url" required><label class="check" for="subscription-enabled"><input id="subscription-enabled" v-model="subscriptionForm.enabled" name="enabled" type="checkbox">启用订阅</label><fieldset><legend>允许地区</legend><label v-for="r in regions" :key="r" class="check" :for="'subscription-region-'+r"><input :id="'subscription-region-'+r" v-model="subscriptionForm.allowed_regions" name="allowed_regions" type="checkbox" :value="r">{{ r }}</label></fieldset><div v-if="subscriptionTestReport" class="test-report" :class="{error:!subscriptionTestReport.success}"><template v-if="subscriptionTestReport.success"><strong>{{ subscriptionTestReport.name }}</strong><span>耗时 {{ subscriptionTestReport.duration_ms }} ms</span><span>原始节点 {{ subscriptionTestReport.raw_nodes }} / 有效节点 {{ subscriptionTestReport.valid_nodes }}</span><div class="chips"><span v-for="r in regions" :key="r">{{ r }} {{ subscriptionTestReport.regions[r] || 0 }}</span><span>未匹配 {{ subscriptionTestReport.regions.unmatched || 0 }}</span></div><p v-for="warning in subscriptionTestReport.warnings" :key="warning">{{ warning }}</p></template><template v-else><strong>测试失败</strong><span>{{ subscriptionTestReport.error }}</span></template></div><div class="actions"><button type="button" :disabled="subscriptionTesting" @click="testSubscriptionDraft">{{ subscriptionTesting?'测试中...':'测试订阅源' }}</button><button class="primary" type="submit">保存</button></div></form></div>
+    <div v-if="subscriptionModal" class="modal-backdrop" @click.self="subscriptionModal=null"><form class="modal" @submit.prevent="saveSubscription"><div class="panel-head"><h3>{{ subscriptionForm.id?'编辑':'添加' }}订阅</h3><button type="button" @click="subscriptionModal=null">×</button></div><label for="subscription-name">名称</label><input id="subscription-name" v-model.trim="subscriptionForm.name" name="name" required maxlength="80"><label for="subscription-url">订阅 URL</label><input id="subscription-url" v-model.trim="subscriptionForm.url" name="url" type="url" autocomplete="url" required><label class="check" for="subscription-enabled"><input id="subscription-enabled" v-model="subscriptionForm.enabled" name="enabled" type="checkbox">启用订阅</label><fieldset><legend>允许地区</legend><label v-for="r in regions" :key="r" class="check" :for="'subscription-region-'+r"><input :id="'subscription-region-'+r" v-model="subscriptionForm.allowed_regions" name="allowed_regions" type="checkbox" :value="r">{{ r }}</label></fieldset><div v-if="subscriptionTestReport" class="test-report" :class="{error:!subscriptionTestReport.success}"><template v-if="subscriptionTestReport.success"><strong>{{ subscriptionTestReport.name }}</strong><span>耗时 {{ subscriptionTestReport.duration_ms }} ms</span><span>原始节点 {{ subscriptionTestReport.raw_nodes }} / 有效节点 {{ subscriptionTestReport.valid_nodes }}</span><div class="chips"><span v-for="r in regions" :key="r">{{ r }} {{ subscriptionTestReport.regions[r] || 0 }}</span><span>未匹配 {{ subscriptionTestReport.regions.unmatched || 0 }}</span></div><p v-for="warning in subscriptionTestReport.warnings" :key="warning">{{ warning }}</p></template><template v-else><strong>测试失败</strong><span>{{ subscriptionTestReport.error }}</span></template></div><div class="actions"><button type="button" :disabled="subscriptionTesting || subscriptionSaving" @click="testSubscriptionDraft">{{ subscriptionTesting?'测试中...':'测试订阅源' }}</button><button class="primary" type="submit" :disabled="subscriptionSaving">{{ subscriptionSaving?'保存中...':'保存' }}</button></div></form></div>
   </div>
   <script src="/proxyhub/vendor/vue.js"></script>
   <script src="/proxyhub/app.js"></script>

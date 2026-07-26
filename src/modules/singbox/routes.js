@@ -38,10 +38,12 @@ export function createSingboxRouter({ database, config, auth, service }) {
     const { name, url, enabled = true, allowed_regions: regions } = request.body || {};
     if (!String(name || '').trim() || String(name).length > 80) return response.status(400).json({ error: 'invalid_name' });
     try { await assertSafeUrl(url); } catch { return response.status(400).json({ error: 'invalid_url' }); }
+    const allowedRegions = cleanRegions(regions);
+    if (enabled && !allowedRegions.length) return response.status(400).json({ error: 'allowed_region_required' });
     const id = auth.newId();
     const now = new Date().toISOString();
     database.prepare(`INSERT INTO subscriptions(id,user_id,name,url_encrypted,enabled,allowed_regions_json,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?)`).run(id, request.auth.user.id, name.trim(), encryptUrl(url, config.dataEncryptionKey), enabled ? 1 : 0, JSON.stringify(cleanRegions(regions)), now, now);
+      VALUES(?,?,?,?,?,?,?,?)`).run(id, request.auth.user.id, name.trim(), encryptUrl(url, config.dataEncryptionKey), enabled ? 1 : 0, JSON.stringify(allowedRegions), now, now);
     response.status(201).json({ id });
   });
   router.put('/subscriptions/:id', auth.requireCsrf, async (request, response) => {
@@ -49,9 +51,26 @@ export function createSingboxRouter({ database, config, auth, service }) {
     if (!current) return response.status(404).json({ error: 'not_found' });
     const url = request.body?.url || decryptUrl(current.url_encrypted, config.dataEncryptionKey);
     try { await assertSafeUrl(url); } catch { return response.status(400).json({ error: 'invalid_url' }); }
+    const name = String(request.body?.name || current.name).trim();
+    if (!name || name.length > 80) return response.status(400).json({ error: 'invalid_name' });
+    const enabled = request.body?.enabled ?? !!current.enabled;
+    const allowedRegions = cleanRegions(request.body?.allowed_regions ?? JSON.parse(current.allowed_regions_json));
+    if (enabled && !allowedRegions.length) return response.status(400).json({ error: 'allowed_region_required' });
     database.prepare(`UPDATE subscriptions SET name=?,url_encrypted=?,enabled=?,allowed_regions_json=?,updated_at=? WHERE id=?`)
-      .run(request.body?.name || current.name, encryptUrl(url, config.dataEncryptionKey), request.body?.enabled === false ? 0 : 1, JSON.stringify(cleanRegions(request.body?.allowed_regions ?? JSON.parse(current.allowed_regions_json))), new Date().toISOString(), current.id);
+      .run(name, encryptUrl(url, config.dataEncryptionKey), enabled ? 1 : 0, JSON.stringify(allowedRegions), new Date().toISOString(), current.id);
     response.json({ success: true });
+  });
+  router.put('/subscriptions/:id/enabled', auth.requireCsrf, (request, response) => {
+    if (typeof request.body?.enabled !== 'boolean') return response.status(400).json({ error: 'invalid_enabled' });
+    const current = database.prepare('SELECT * FROM subscriptions WHERE id=? AND user_id=?')
+      .get(request.params.id, request.auth.user.id);
+    if (!current) return response.status(404).json({ error: 'not_found' });
+    if (request.body.enabled && !cleanRegions(JSON.parse(current.allowed_regions_json)).length) {
+      return response.status(400).json({ error: 'allowed_region_required' });
+    }
+    database.prepare('UPDATE subscriptions SET enabled=?,updated_at=? WHERE id=?')
+      .run(request.body.enabled ? 1 : 0, new Date().toISOString(), current.id);
+    response.json({ success: true, enabled: request.body.enabled });
   });
   router.delete('/subscriptions/:id', auth.requireCsrf, (request, response) => {
     const result = database.prepare('DELETE FROM subscriptions WHERE id=? AND user_id=?').run(request.params.id, request.auth.user.id);
@@ -71,7 +90,7 @@ export function createSingboxRouter({ database, config, auth, service }) {
   });
   router.post('/generation/test', auth.requireCsrf, async (request, response) => {
     try { response.json(await service.generate(request.auth.user)); }
-    catch (error) { response.status(502).json({ error: error.message }); }
+    catch (error) { response.json(error.diagnostics || { success: false, error: error.message, summary: {}, steps: [] }); }
   });
   router.get('/generation/status', (request, response) => {
     response.json({ runs: database.prepare('SELECT id,status,summary_json,error_text,started_at,finished_at FROM generation_runs WHERE user_id=? ORDER BY started_at DESC LIMIT 20').all(request.auth.user.id) });
@@ -133,14 +152,18 @@ export function createSingboxRouter({ database, config, auth, service }) {
     }
   });
   router.post('/admin/templates/:id/activate', auth.requireOwner, auth.requireCsrf, (request, response) => {
-    const result = service.activateTemplate(request.params.id);
-    if (!result) return response.status(404).json({ error: 'template_not_found' });
-    response.json({ success: true, ...result });
+    try {
+      const result = service.activateTemplate(request.params.id);
+      if (!result) return response.status(404).json({ error: 'template_not_found' });
+      response.json({ success: true, ...result });
+    } catch (error) { response.status(400).json({ error: error.message }); }
   });
   router.post('/admin/templates/:id/rollback', auth.requireOwner, auth.requireCsrf, (request, response) => {
-    const result = service.activateTemplate(request.params.id);
-    if (!result) return response.status(404).json({ error: 'template_not_found' });
-    response.json({ success: true, rollback: true, ...result });
+    try {
+      const result = service.activateTemplate(request.params.id);
+      if (!result) return response.status(404).json({ error: 'template_not_found' });
+      response.json({ success: true, rollback: true, ...result });
+    } catch (error) { response.status(400).json({ error: error.message }); }
   });
   return router;
 }

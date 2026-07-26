@@ -335,3 +335,31 @@ returns duration, raw/valid counts, allowed-region counts, unmatched count and
 warnings. The editor displays the structured report before saving.
 
 Local enforced suite after F6T: PASS, 29/29. `git diff --check`: PASS.
+
+## F6U - complete diagnostics and management UX
+
+The four subscription consumers now share the same fetch and cleaning path:
+normal client generation, saved-source tests, unsaved draft tests and full
+generation tests. Cache busting, Clash user agent, timeout, response-size
+limit, private HTTP(S) support, cleaning expression and region dictionary are
+therefore no longer able to drift between test and production behavior.
+
+Full generation diagnostics contain ordered template, source fetch, cleaning,
+regional grouping, selector injection and final configuration steps. Source
+reports preserve database order under concurrent fetches and include raw,
+valid, duration, warning and error fields. The client-token endpoint continues
+to return only the sing-box configuration.
+
+The dashboard now provides:
+
+- Clipboard API plus LAN HTTP and manual-copy fallbacks;
+- inline persisted-source reports and separate draft reports;
+- atomic per-source enable controls with loading and ownership checks;
+- summary cards, ordered steps and expandable raw diagnostics;
+- a single validated template-version switch action with active/source/parent
+  metadata.
+
+Sub-Store proxying, native backup/restore, random backend path and independent
+container commands were not changed.
+
+Local enforced suite after F6U: PASS, 33/33. `git diff --check`: PASS.

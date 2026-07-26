@@ -291,6 +291,46 @@ Exit:
   per-subscription region authorization;
 - user isolation, Session and CSRF behavior remain unchanged.
 
+### F6U - Restore complete singbox-center diagnostics and management UX
+
+Shared generation pipeline:
+
+- use one subscription fetch path for normal generation, saved-source tests,
+  draft tests and full generation tests;
+- apply HTTP(S)-only validation, private-address support, cache busting, Clash
+  user agent, timeout, size limit, cleaning and region matching consistently;
+- preserve subscription order while fetching concurrently;
+- report template source/version/hash, per-source raw/valid/error results,
+  cleaning and cross-source deduplication, regional groups, selectors and final
+  outbound count;
+- return the generated sing-box JSON alone to clients while returning
+  structured diagnostics to the authenticated test endpoint;
+- keep partial diagnostic steps when generation cannot complete.
+
+Management UX:
+
+- make address copying work on secure pages and LAN HTTP pages, with an
+  explicit manual fallback;
+- show saved subscription test results inline without opening the editor;
+- keep draft tests inside the editor and never save them implicitly;
+- add an owner-scoped, CSRF-protected atomic subscription enabled endpoint and
+  per-row loading state;
+- replace the raw summary-only generation view with summary cards, ordered
+  steps and per-subscription details;
+- explain immutable template versions, identify the active version and use one
+  validated "switch to this version" action.
+
+Exit:
+
+- normal and diagnostic generation use the same fetched and cleaned nodes;
+- one failed source produces a warning without hiding successful sources;
+- an all-failed source set produces a structured failure;
+- disabled sources do not participate in generation but remain testable;
+- copying succeeds over Alpine LAN HTTP or provides a truthful manual fallback;
+- template switching validates the target and leaves only one active version;
+- existing user isolation, cache fallback and Sub-Store boundaries remain
+  unchanged.
+
 ## 3. Commit boundaries
 
 ```text

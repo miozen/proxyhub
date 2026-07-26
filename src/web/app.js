@@ -17,6 +17,8 @@ createApp({
     substore: { health: {}, backend_path: '' },
     generatedUrl: '', generationResult: null, subscriptionModal: null,
     subscriptionTesting: false, subscriptionTestReport: null,
+    subscriptionTests: {}, subscriptionBusy: {}, subscriptionToggles: {},
+    subscriptionSaving: false, generationTesting: false, generationTestedAt: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
     templateForm: { parent_id: null, source_type: 'local', source_url: '', content: '' },
     account: { username: '', currentPassword: '', newPassword: '' },
@@ -125,16 +127,53 @@ createApp({
       this.subscriptionModal = true;
     },
     async saveSubscription() {
+      this.subscriptionSaving = true;
       try {
         const id = this.subscriptionForm.id;
         await this.api(id ? `/api/subscriptions/${id}` : '/api/subscriptions', { method: id ? 'PUT' : 'POST', body: this.subscriptionForm });
-        this.subscriptionModal = null; await this.loadSubscriptions(); this.flash('订阅已保存');
+        this.subscriptionModal = null;
+        this.subscriptionTestReport = null;
+        await this.loadSubscriptions();
+        this.flash('订阅已保存');
       } catch (error) { this.flash(error.message, 'error'); }
+      finally { this.subscriptionSaving = false; }
     },
-    async removeSubscription(sub) { if (!confirm(`删除订阅“${sub.name}”？`)) return; await this.api(`/api/subscriptions/${sub.id}`, { method: 'DELETE' }); await this.loadSubscriptions(); },
+    async removeSubscription(sub) {
+      if (!confirm(`删除订阅“${sub.name}”？`)) return;
+      await this.api(`/api/subscriptions/${sub.id}`, { method: 'DELETE' });
+      const { [sub.id]: _removed, ...remaining } = this.subscriptionTests;
+      this.subscriptionTests = remaining;
+      await this.loadSubscriptions();
+    },
     async testSubscription(sub) {
-      this.editSubscription(sub);
-      await this.testSubscriptionDraft();
+      this.subscriptionBusy = { ...this.subscriptionBusy, [sub.id]: true };
+      try {
+        const report = await this.api(`/api/subscriptions/${sub.id}/test`, { method: 'POST' });
+        this.subscriptionTests = {
+          ...this.subscriptionTests,
+          [sub.id]: { ...report, tested_at: new Date().toISOString(), expanded: true }
+        };
+        this.flash(report.success ? '订阅测试完成' : report.error, report.success ? 'success' : 'error');
+      } catch (error) { this.flash(error.message, 'error'); }
+      finally { this.subscriptionBusy = { ...this.subscriptionBusy, [sub.id]: false }; }
+    },
+    toggleSubscriptionReport(sub) {
+      const report = this.subscriptionTests[sub.id];
+      if (report) this.subscriptionTests = {
+        ...this.subscriptionTests, [sub.id]: { ...report, expanded: !report.expanded }
+      };
+    },
+    async toggleSubscription(sub) {
+      const next = !sub.enabled;
+      this.subscriptionToggles = { ...this.subscriptionToggles, [sub.id]: true };
+      try {
+        const result = await this.api(`/api/subscriptions/${sub.id}/enabled`, {
+          method: 'PUT', body: { enabled: next }
+        });
+        sub.enabled = result.enabled;
+        this.flash(result.enabled ? '订阅已启用' : '订阅已停用');
+      } catch (error) { this.flash(error.message, 'error'); }
+      finally { this.subscriptionToggles = { ...this.subscriptionToggles, [sub.id]: false }; }
     },
     async testSubscriptionDraft() {
       if (!this.subscriptionForm.url) return this.flash('请先填写订阅 URL', 'error');
@@ -157,7 +196,19 @@ createApp({
       this.generatedUrl = `${location.origin}/api/generate?token=${encodeURIComponent(data.token)}`;
       this.flash('客户端 Token 已重置');
     },
-    async testGeneration() { try { this.generationResult = await this.api('/api/generation/test', { method: 'POST' }); this.flash('配置生成成功'); } catch (error) { this.flash(error.message, 'error'); } },
+    async testGeneration() {
+      this.generationTesting = true;
+      try {
+        const result = await this.api('/api/generation/test', { method: 'POST' });
+        this.generationResult = result;
+        this.generationTestedAt = new Date().toISOString();
+        this.flash(
+          result.success ? '配置生成测试完成' : result.error,
+          result.success ? (result.summary.warnings ? 'warning' : 'success') : 'error'
+        );
+      } catch (error) { this.flash(error.message, 'error'); }
+      finally { this.generationTesting = false; }
+    },
     async createTemplate() {
       try {
         const body = { ...this.templateForm };
@@ -192,13 +243,12 @@ createApp({
         this.flash(`刷新失败，继续保留旧版本：${error.message}`, 'error');
       }
     },
-    async rollbackTemplate(tpl) {
-      if (!confirm(`回滚并激活版本 ${tpl.id.slice(0,8)}？`)) return;
-      await this.api(`/api/admin/templates/${tpl.id}/rollback`, { method: 'POST' });
+    async switchTemplate(tpl) {
+      if (tpl.active || !confirm(`切换到模板版本 ${tpl.id.slice(0,8)}？下一次配置生成将使用此版本。`)) return;
+      await this.api(`/api/admin/templates/${tpl.id}/activate`, { method: 'POST' });
       await this.loadTemplates();
-      this.flash('模板已回滚');
+      this.flash('活动模板版本已切换');
     },
-    async activateTemplate(tpl) { if (tpl.active || !confirm('激活此模板版本？')) return; await this.api(`/api/admin/templates/${tpl.id}/activate`, { method: 'POST' }); await this.loadTemplates(); },
     async userAction(item, action) { await this.api(`/api/admin/users/${item.id}/${action}`, { method: 'POST' }); await this.loadUsers(); },
     async deleteUser(item) { if (!confirm(`永久删除用户“${item.username}”？`)) return; await this.api(`/api/admin/users/${item.id}`, { method: 'DELETE' }); await this.loadUsers(); },
     async toggleGeneration(item) { await this.api(`/api/admin/users/${item.id}/generation`, { method: 'PUT', body: { enabled: !item.generation_enabled } }); await this.loadUsers(); },
@@ -222,7 +272,29 @@ createApp({
     },
     async changeUsername() { await this.api('/api/me/username', { method: 'PUT', body: { username: this.account.username } }); this.user.username = this.account.username; this.flash('用户名已更新'); },
     async changePassword() { try { await this.api('/api/me/password', { method: 'PUT', body: { current_password: this.account.currentPassword, new_password: this.account.newPassword } }); this.user = null; this.csrf = ''; this.flash('密码已修改，请重新登录'); } catch (error) { this.flash(error.message, 'error'); } },
-    async copy(value) { await navigator.clipboard.writeText(value); this.flash('已复制'); },
+    async copy(value) {
+      if (!value) return;
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('clipboard_unavailable');
+        await navigator.clipboard.writeText(value);
+        this.flash('已复制');
+        return;
+      } catch {}
+      const input = document.createElement('textarea');
+      input.value = value;
+      input.setAttribute('readonly', '');
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      input.select();
+      try {
+        if (!document.execCommand('copy')) throw new Error('copy_failed');
+        this.flash('已复制');
+      } catch {
+        this.flash('浏览器未允许自动复制，请手动复制', 'error');
+        window.prompt('请手动复制地址', value);
+      } finally { input.remove(); }
+    },
     maskUrl(value) { try { const url = new URL(value); return `${url.origin}${url.pathname.slice(0,20)}…`; } catch { return '••••••'; } },
     formatTime(value) { return new Date(value).toLocaleString(); }
   }
