@@ -3,7 +3,7 @@ set -eu
 
 REPOSITORY=miozen/proxyhub
 CHANNEL=stable
-VERSION=
+RELEASE_VERSION=
 REF=
 PROXYHUB_IMAGE=
 SUBSTORE_VERSION=2.36.21
@@ -48,7 +48,7 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --channel) CHANNEL=${2:-}; shift 2 ;;
-    --version) VERSION=${2:-}; shift 2 ;;
+    --version) RELEASE_VERSION=${2:-}; shift 2 ;;
     --ref) REF=${2:-}; shift 2 ;;
     --image) PROXYHUB_IMAGE=${2:-}; shift 2 ;;
     --substore-version) SUBSTORE_VERSION=${2:-}; SUBSTORE_VERSION_EXPLICIT=true; shift 2 ;;
@@ -149,16 +149,19 @@ validate_archive() {
 }
 
 prepare_stable_assets() {
-  if [ -n "$VERSION" ]; then
-    case "$VERSION" in v*) RELEASE_TAG=$VERSION ;; *) RELEASE_TAG=v$VERSION ;; esac
+  if [ -n "$RELEASE_VERSION" ]; then
+    case "$RELEASE_VERSION" in
+      v*) RELEASE_TAG=$RELEASE_VERSION ;;
+      *) RELEASE_TAG=v$RELEASE_VERSION ;;
+    esac
   else
     RELEASE_TAG=$(latest_release)
   fi
   [ -n "$RELEASE_TAG" ] || die "could not discover the latest release"
   valid_version "$RELEASE_TAG" || die "invalid release version"
-  VERSION=${RELEASE_TAG#v}
+  RELEASE_VERSION=${RELEASE_TAG#v}
 
-  archive_name=proxyhub-deploy-$VERSION.tar.gz
+  archive_name=proxyhub-deploy-$RELEASE_VERSION.tar.gz
   release_base=https://github.com/$REPOSITORY/releases/download/$RELEASE_TAG
   download "$release_base/$archive_name" "$tmp_dir/$archive_name"
   download "$release_base/SHA256SUMS" "$tmp_dir/SHA256SUMS"
@@ -286,6 +289,28 @@ read_env() {
   printf '%s\n' "${value:-$default}"
 }
 
+legacy_env_file() {
+  candidate=
+  container_id=$(docker ps -aq --filter 'name=^/proxyhub-proxyhub-1$' | head -1)
+  if [ -n "$container_id" ]; then
+    legacy_dir=$(
+      docker inspect "$container_id" \
+        --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' \
+        2>/dev/null || true
+    )
+    candidate=${legacy_dir:+$legacy_dir/.env}
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+  if [ -f /root/proxyhub/.env ]; then
+    printf '%s\n' /root/proxyhub/.env
+    return 0
+  fi
+  return 1
+}
+
 ensure_host_tools
 
 if [ "$CHANNEL" = stable ]; then
@@ -299,8 +324,12 @@ command -v openssl >/dev/null 2>&1 || die "openssl is required"
 docker info >/dev/null 2>&1 || die "Docker daemon is not running"
 
 existing_install=false
+existing_data=false
+if docker volume inspect proxyhub-data >/dev/null 2>&1; then
+  existing_data=true
+fi
 if [ -e "$DEPLOY_DIR" ] || [ -e "$ENV_FILE" ] || [ -L "$CLI_PATH" ] ||
-  docker volume inspect proxyhub-data >/dev/null 2>&1 ||
+  [ "$existing_data" = true ] ||
   docker volume inspect proxyhub-substore-data >/dev/null 2>&1; then
   existing_install=true
 fi
@@ -350,9 +379,24 @@ install -m 0755 "$tmp_dir/deployment/proxyhub" "$DEPLOY_DIR/proxyhub"
 install -m 0644 "$tmp_dir/deployment/VERSION" "$DEPLOY_DIR/VERSION"
 
 if [ ! -f "$ENV_FILE" ]; then
+  legacy_env=
+  if [ "$existing_data" = true ]; then
+    legacy_env=$(legacy_env_file || true)
+    [ -n "$legacy_env" ] ||
+      die "existing ProxyHub data requires its original SESSION_SECRET and DATA_ENCRYPTION_KEY"
+  fi
   install -m 0600 "$tmp_dir/deployment/.env.example" "$ENV_FILE"
-  set_env SESSION_SECRET "$(openssl rand -hex 32)" "$ENV_FILE"
-  set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)" "$ENV_FILE"
+  if [ -n "$legacy_env" ]; then
+    legacy_session=$(sed -n 's/^SESSION_SECRET=//p' "$legacy_env" | tail -1)
+    legacy_data_key=$(sed -n 's/^DATA_ENCRYPTION_KEY=//p' "$legacy_env" | tail -1)
+    [ -n "$legacy_session" ] && [ -n "$legacy_data_key" ] ||
+      die "legacy ProxyHub configuration is missing required secrets"
+    set_env SESSION_SECRET "$legacy_session" "$ENV_FILE"
+    set_env DATA_ENCRYPTION_KEY "$legacy_data_key" "$ENV_FILE"
+  else
+    set_env SESSION_SECRET "$(openssl rand -hex 32)" "$ENV_FILE"
+    set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)" "$ENV_FILE"
+  fi
 fi
 if [ "$PORT_EXPLICIT" = true ] || ! grep -q '^PORT=' "$ENV_FILE"; then
   set_env PORT "$PORT" "$ENV_FILE"

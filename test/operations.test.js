@@ -134,6 +134,9 @@ test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /grep -Eq '\^\[A-Za-z0-9\._-\]\+\$'/);
   assert.match(installer, /valid_version "\$RELEASE_TAG" \|\| die "invalid release version"/);
   assert.doesNotMatch(installer, /\[\!\[:alnum:\]\._-\]/);
+  assert.match(installer, /^RELEASE_VERSION=$/m);
+  assert.doesNotMatch(installer, /^VERSION=$/m);
+  assert.match(installer, /--version\) RELEASE_VERSION=/);
   assert.match(installer, /--ref is required for the dev channel/);
   assert.match(installer, /--image is required for the dev channel/);
   assert.match(installer, /port \$PORT is already in use/);
@@ -146,6 +149,11 @@ test('O1.4 installer preserves secrets and writes the fixed host layout', () => 
   assert.match(installer, /DATA_DIR=\/var\/lib\/proxyhub/);
   assert.match(installer, /if \[ ! -f "\$ENV_FILE" \]; then/);
   assert.match(installer, /openssl rand -hex 32/);
+  assert.match(installer, /legacy_env_file\(\)/);
+  assert.match(installer, /com\.docker\.compose\.project\.working_dir/);
+  assert.match(installer, /existing ProxyHub data requires its original SESSION_SECRET and DATA_ENCRYPTION_KEY/);
+  assert.match(installer, /set_env SESSION_SECRET "\$legacy_session"/);
+  assert.match(installer, /set_env DATA_ENCRYPTION_KEY "\$legacy_data_key"/);
   assert.match(installer, /PORT_EXPLICIT=false/);
   assert.match(installer, /SUBSTORE_VERSION_EXPLICIT=false/);
   assert.match(installer, /PORT=\$\(read_env PORT "\$PORT"\)/);

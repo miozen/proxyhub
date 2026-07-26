@@ -38,7 +38,17 @@ export function createSingboxRouter({ database, config, auth, service }) {
   router.use(auth.requireUser);
   router.get('/subscriptions', (request, response) => {
     const rows = database.prepare('SELECT * FROM subscriptions WHERE user_id=? ORDER BY created_at').all(request.auth.user.id);
-    response.json({ subscriptions: rows.map((row) => ({ id: row.id, name: row.name, url: decryptUrl(row.url_encrypted, config.dataEncryptionKey), enabled: !!row.enabled, allowed_regions: JSON.parse(row.allowed_regions_json) })) });
+    try {
+      response.json({ subscriptions: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        url: decryptUrl(row.url_encrypted, config.dataEncryptionKey),
+        enabled: !!row.enabled,
+        allowed_regions: JSON.parse(row.allowed_regions_json)
+      })) });
+    } catch {
+      response.status(409).json({ error: 'subscription_decryption_failed' });
+    }
   });
   router.post('/subscriptions', auth.requireCsrf, async (request, response) => {
     const { name, url, enabled = true, allowed_regions: regions } = request.body || {};
