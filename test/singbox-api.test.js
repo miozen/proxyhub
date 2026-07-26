@@ -128,6 +128,12 @@ test('creates template and subscription then generates config by client token', 
   });
   assert.equal(result.body.enabled, false);
   assert.equal((await call(base, '/api/subscriptions', { headers })).body.subscriptions[0].enabled, false);
+
+  database.prepare("UPDATE subscriptions SET url_encrypted='corrupted' WHERE user_id=?")
+    .run(login.body.user.id);
+  result = await call(base, '/api/subscriptions', { headers });
+  assert.equal(result.response.status, 409);
+  assert.equal(result.body.error, 'subscription_decryption_failed');
 });
 
 test('P2 acceptance: isolates failed sources and users and obeys cache fallback', async (context) => {

@@ -2,7 +2,7 @@
 
 ProxyHub 是面向 VPS 和内网虚拟机的 sing-box 配置与 Sub-Store 统一管理平台。它将原 `singbox-center` 的用户、订阅、模板和配置生成功能，与官方 Sub-Store 的订阅管理能力整合到同一套登录系统中。
 
-当前稳定版本：`v0.1.3`
+当前稳定版本：`v0.1.4`
 
 ## 主要功能
 
@@ -64,14 +64,14 @@ http://服务器IP:3000/
 
 ```sh
 # 安装指定 ProxyHub 版本
-sudo /tmp/proxyhub-install.sh --version 0.1.3
+sudo /tmp/proxyhub-install.sh --version 0.1.4
 
 # 使用其他宿主机端口
 sudo /tmp/proxyhub-install.sh --port 3100
 
 # 同时指定 Sub-Store 版本
 sudo /tmp/proxyhub-install.sh \
-  --version 0.1.3 \
+  --version 0.1.4 \
   --substore-version 2.36.21 \
   --port 3000
 
@@ -165,20 +165,20 @@ proxyhub update proxyhub
 更新到指定版本：
 
 ```sh
-proxyhub update proxyhub --version 0.1.3
+proxyhub update proxyhub --version 0.1.4
 ```
 
 使用指定镜像标签或 digest：
 
 ```sh
 proxyhub update proxyhub \
-  --image ghcr.io/miozen/proxyhub:v0.1.3
+  --image ghcr.io/miozen/proxyhub:v0.1.4
 ```
 
 非交互确认：
 
 ```sh
-proxyhub update proxyhub --version 0.1.3 --yes
+proxyhub update proxyhub --version 0.1.4 --yes
 ```
 
 ### 更新 Sub-Store
@@ -338,7 +338,7 @@ curl -fsS http://127.0.0.1:3000/healthz
 
 ## 镜像与发布
 
-- 稳定镜像：`ghcr.io/miozen/proxyhub:v0.1.3`
+- 稳定镜像：`ghcr.io/miozen/proxyhub:v0.1.4`
 - 最新稳定镜像：`ghcr.io/miozen/proxyhub:latest`
 - 支持平台：`linux/amd64`、`linux/arm64`
 - Sub-Store：官方 `xream/sub-store`

@@ -36,3 +36,12 @@ test('F6U explains immutable template versions and uses one switch action', () =
   assert.match(javascript, /async switchTemplate\(tpl\)/);
   assert.doesNotMatch(html, /@click="rollbackTemplate\(tpl\)"/);
 });
+
+test('refresh keeps authentication when business data loading fails', () => {
+  const restore = javascript.match(/async restore\(\) \{([\s\S]*?)\n    \},\n    async authSubmit/)?.[1] || '';
+  assert.match(restore, /this\.setAuthenticatedUser\(data\)/);
+  assert.match(restore, /await this\.loadCore\(\)/);
+  assert.match(restore, /this\.flash\(error\.message, 'error'\)/);
+  assert.match(restore, /return;/);
+  assert.match(javascript, /subscription_decryption_failed/);
+});

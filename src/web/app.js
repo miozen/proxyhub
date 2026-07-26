@@ -57,8 +57,13 @@ createApp({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorMessages = { registration_disabled: '注册功能已关闭' };
-        throw new Error(errorMessages[data.error] || data.error || `HTTP ${response.status}`);
+        const errorMessages = {
+          registration_disabled: '注册功能已关闭',
+          subscription_decryption_failed: '订阅数据无法解密，请恢复原 DATA_ENCRYPTION_KEY'
+        };
+        const error = new Error(errorMessages[data.error] || data.error || `HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
       }
       return data;
     },
@@ -72,8 +77,18 @@ createApp({
         : '';
     },
     async restore() {
-      try { const data = await this.api('/api/me'); this.setAuthenticatedUser(data); await this.loadCore(); }
-      catch { this.user = null; }
+      try {
+        const data = await this.api('/api/me');
+        this.setAuthenticatedUser(data);
+      } catch {
+        this.user = null;
+        return;
+      }
+      try {
+        await this.loadCore();
+      } catch (error) {
+        this.flash(error.message, 'error');
+      }
     },
     async authSubmit() {
       this.busy = true;
