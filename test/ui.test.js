@@ -22,3 +22,12 @@ test('F5 labels target controls and the local favicon is declared', () => {
   assert.match(html, /<link rel="icon" href="\/proxyhub\/favicon\.svg" type="image\/svg\+xml">/);
   assert.ok(fs.existsSync(new URL('../src/web/favicon.svg', import.meta.url)));
 });
+
+test('S2 registration errors remain visible before authentication', () => {
+  const notice = html.indexOf('v-if="notice"');
+  const unauthenticatedShell = html.indexOf('v-if="!user"');
+  assert.ok(notice > 0);
+  assert.ok(notice < unauthenticatedShell);
+  const javascript = fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8');
+  assert.match(javascript, /registration_disabled:\s*'注册功能已关闭'/);
+});

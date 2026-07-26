@@ -13,7 +13,13 @@ async function call(base, route, { body, ...options } = {}) {
     headers: { 'content-type': 'application/json', ...(options.headers || {}) },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  return { response, body: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  const text = await response.text();
+  return {
+    response,
+    body: text ? JSON.parse(text) : {},
+    text,
+    cookie: response.headers.get('set-cookie')?.split(';')[0]
+  };
 }
 
 test('creates template and subscription then generates config by client token', async (context) => {
@@ -91,6 +97,10 @@ test('creates template and subscription then generates config by client token', 
   const token = await call(base, '/api/me/token/reset', { method: 'POST', headers });
   result = await call(base, `/api/generate?token=${encodeURIComponent(token.body.token)}`);
   assert.equal(result.response.status, 200);
+  assert.match(result.response.headers.get('content-type'), /^application\/json/);
+  assert.match(result.text, /^\{\n {2}"/);
+  assert.match(result.text, /\n {2}"outbounds": \[/);
+  assert.ok(result.text.endsWith('\n'));
   const group = result.body.outbounds.find((outbound) => outbound.tag === '🇭🇰 HK-Airport');
   assert.deepEqual(group.outbounds, ['CustomRegion-Node']);
   assert.equal(group.url, 'https://example.com/generate_204');
@@ -204,6 +214,8 @@ test('P2 acceptance: isolates failed sources and users and obeys cache fallback'
   result = await call(base, `/api/generate?token=${encodeURIComponent(ownerToken.body.token)}`);
   assert.equal(result.response.status, 200);
   assert.equal(result.response.headers.get('x-proxyhub-cache'), 'stale');
+  assert.match(result.text, /^\{\n {2}"/);
+  assert.ok(result.text.endsWith('\n'));
   await call(base, '/api/admin/settings/generation-cache', {
     method: 'PUT', headers: ownerHeaders, body: { enabled: false }
   });

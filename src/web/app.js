@@ -56,7 +56,10 @@ createApp({
         body: options.body === undefined ? undefined : JSON.stringify(options.body)
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if (!response.ok) {
+        const errorMessages = { registration_disabled: '注册功能已关闭' };
+        throw new Error(errorMessages[data.error] || data.error || `HTTP ${response.status}`);
+      }
       return data;
     },
     flash(text, type = 'success') { this.notice = { text, type }; setTimeout(() => { if (this.notice?.text === text) this.notice = null; }, 3500); },

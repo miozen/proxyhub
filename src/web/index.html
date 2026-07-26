@@ -14,6 +14,7 @@
 </head>
 <body>
   <div id="app" v-cloak>
+    <div v-if="notice" class="notice" :class="notice.type">{{ notice.text }}<button @click="notice=null">×</button></div>
     <main v-if="!user" class="auth-shell">
       <section class="auth-copy">
         <div class="brand-mark">PH</div>
@@ -46,8 +47,6 @@
 
       <section class="workspace">
         <header><button class="menu" @click="menuOpen=!menuOpen">☰</button><div><p class="eyebrow">{{ currentNav.label }}</p><h2>{{ pageTitle }}</h2></div><span class="status-dot">● 服务在线</span></header>
-        <div v-if="notice" class="notice" :class="notice.type">{{ notice.text }}<button @click="notice=null">×</button></div>
-
         <section v-if="page==='dashboard'" class="content">
           <div class="hero"><div><p class="eyebrow">PROXYHUB / DEV</p><h3>欢迎回来，{{ user.username }}</h3><p>配置生成核心已就绪。管理订阅和模板后即可签发客户端配置。</p></div><button class="primary" @click="page='generation'">生成配置 →</button></div>
           <div class="stat-grid">
