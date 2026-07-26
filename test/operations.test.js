@@ -61,6 +61,19 @@ test('S3 publishes dev images manually and reserves automatic builds for release
   assert.match(imageWorkflow, /type=raw,value=latest,enable=/);
 });
 
+test('S4 publishes checksummed stable assets only after the tagged image succeeds', () => {
+  assert.match(imageWorkflow, /release-assets:/);
+  assert.match(imageWorkflow, /needs:\s*publish/);
+  assert.match(imageWorkflow, /version="\$\{GITHUB_REF_NAME#v\}"/);
+  assert.match(imageWorkflow, /scripts\/build-deployment-assets\.sh "\$version" dist/);
+  assert.match(imageWorkflow, /sha256sum -c SHA256SUMS/);
+  assert.match(imageWorkflow, /proxyhub-deploy-\$version\.tar\.gz/);
+  assert.match(imageWorkflow, /gh release create "\$GITHUB_REF_NAME"/);
+  assert.match(imageWorkflow, /dist\/install\.sh/);
+  assert.match(imageWorkflow, /dist\/SHA256SUMS/);
+  assert.match(imageWorkflow, /contents:\s*write/);
+});
+
 test('S3 keeps CI on dev and master while targeting expensive checks by changed paths', () => {
   assert.match(checkWorkflow, /branches:\s*\[dev, master\]/);
   assert.match(checkWorkflow, /Select targeted checks/);

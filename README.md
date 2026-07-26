@@ -2,13 +2,19 @@
 
 Unified sing-box and Sub-Store management.
 
-Current status: P0-P5 re-baseline on `dev`; see `IMPLEMENTATION_PLAN.md`.
+Current status: release acceptance complete on `dev`; see
+`RELEASE_COMPLETION_PLAN.md`.
 
 ```sh
-chmod +x ops/proxyhub
-sudo ln -s "$(pwd)/ops/proxyhub" /usr/local/bin/proxyhub
-proxyhub install
+curl -fsSLo /tmp/proxyhub-install.sh \
+  https://github.com/Vonzhen/proxyhub/releases/latest/download/install.sh
+chmod +x /tmp/proxyhub-install.sh
+sudo /tmp/proxyhub-install.sh
 ```
+
+The stable installer supports Alpine, Debian and Ubuntu on amd64 and arm64. It
+downloads checksummed deployment assets from the selected GitHub Release,
+installs Docker when approved, and exposes ProxyHub on port 3000 by default.
 
 Only ProxyHub is published on the host. Sub-Store stays on the private Compose
 network. The ProxyHub dashboard is available at `/proxyhub/`; the official

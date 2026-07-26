@@ -34,7 +34,7 @@ without a defect or artifact change.
 
 ## S3 - Actions simplification
 
-Status: IN_PROGRESS
+Status: COMPLETE
 
 - dev/PR: tests and targeted Docker integration;
 - docs-only changes: no Docker build;
@@ -43,6 +43,16 @@ Status: IN_PROGRESS
 - `v*` tag: release build only.
 
 ## S4 - Direct formal release
+
+Status: IN_PROGRESS
+
+Dry-run status: PASS
+
+- `proxyhub-deploy-0.1.0.tar.gz` and `install.sh` checksums verified;
+- archive allow-list and embedded `VERSION=0.1.0` verified;
+- stable installer syntax/help verified;
+- tagged image must succeed before GitHub Release assets are published;
+- local enforced suite passes 53/53.
 
 1. dry-run release packaging on dev;
 2. user approves `dev -> master` PR;
