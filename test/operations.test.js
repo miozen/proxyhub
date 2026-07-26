@@ -161,6 +161,10 @@ test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /--ref is required for the dev channel/);
   assert.match(installer, /--image is required for the dev channel/);
   assert.match(installer, /port \$PORT is already in use/);
+  assert.match(installer, /command -v ss/);
+  assert.match(installer, /ss -ltn/);
+  assert.match(installer, /elif command -v netstat/);
+  assert.match(installer, /netstat -ltn/);
   assert.match(installer, /at least 512 MiB of free disk space is required/);
 });
 
