@@ -20,12 +20,12 @@ Branch policy: dev first; master/tag/release require explicit approval
 
 ## S2 - Required business acceptance
 
-- owner/member registration and approval;
-- subscription testing and generation diagnostics;
-- token URL persistence/reset;
-- template version activation/rollback;
-- Sub-Store UI, data and backup/restore;
-- full ProxyHub backup/restore and restart persistence.
+- S2.1 owner/member registration, approval and account controls;
+- S2.2 subscription testing, generation diagnostics, token URL
+  persistence/reset, protocol-transparent node assembly and stale fallback;
+- S2.3 template version creation, activation and rollback;
+- S2.4 Sub-Store UI, data and native backup/restore;
+- S2.5 full ProxyHub backup/restore and restart persistence.
 
 Only missing evidence is executed; already accepted gates are not repeated
 without a defect or artifact change.
