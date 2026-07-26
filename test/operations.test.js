@@ -143,21 +143,20 @@ test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /at least 512 MiB of free disk space is required/);
 });
 
-test('O1.4 installer preserves secrets and writes the fixed host layout', () => {
+test('L6.1 installer supports only fresh or explicitly destructive replacement', () => {
   assert.match(installer, /DEPLOY_DIR=\/opt\/proxyhub/);
   assert.match(installer, /ENV_FILE=\$CONFIG_DIR\/proxyhub\.env/);
   assert.match(installer, /DATA_DIR=\/var\/lib\/proxyhub/);
-  assert.match(installer, /if \[ ! -f "\$ENV_FILE" \]; then/);
   assert.match(installer, /openssl rand -hex 32/);
-  assert.match(installer, /legacy_env_file\(\)/);
-  assert.match(installer, /com\.docker\.compose\.project\.working_dir/);
-  assert.match(installer, /existing ProxyHub data requires its original SESSION_SECRET and DATA_ENCRYPTION_KEY/);
-  assert.match(installer, /set_env SESSION_SECRET "\$legacy_session"/);
-  assert.match(installer, /set_env DATA_ENCRYPTION_KEY "\$legacy_data_key"/);
-  assert.match(installer, /PORT_EXPLICIT=false/);
-  assert.match(installer, /SUBSTORE_VERSION_EXPLICIT=false/);
-  assert.match(installer, /PORT=\$\(read_env PORT "\$PORT"\)/);
-  assert.match(installer, /SUBSTORE_IMAGE=\$\(read_env SUBSTORE_IMAGE/);
+  assert.match(installer, /--replace\) REPLACE=true/);
+  assert.match(installer, /managed_state_exists\(\)/);
+  assert.match(installer, /ProxyHub is already installed; use update or rerun with --replace/);
+  assert.match(installer, /PROXYHUB_REPLACE_CONFIRM:-/);
+  assert.match(installer, /Type DELETE to replace the existing installation:/);
+  assert.match(installer, /remove_managed_state\(\)/);
+  assert.match(installer, /docker volume rm proxyhub-data proxyhub-substore-data/);
+  assert.doesNotMatch(installer, /legacy_env_file\(\)/);
+  assert.doesNotMatch(installer, /Reuse configuration and data/);
   assert.match(installer, /ln -sf "\$DEPLOY_DIR\/proxyhub" "\$CLI_PATH"/);
   assert.match(installer, /"\$CLI_PATH" install/);
 });
@@ -191,13 +190,15 @@ test('O1.5 supports confirmed automatic and explicit component updates', () => {
   assert.match(source, /for component in proxyhub sub-store/);
 });
 
-test('O1.6 uninstall preserves data unless exact purge is confirmed', () => {
+test('L6.1 uninstall always deletes managed data after exact confirmation', () => {
   assert.match(source, /Permanent deletion targets:/);
   assert.match(source, /Type DELETE to continue:/);
-  assert.match(source, /PROXYHUB_PURGE_CONFIRM:-.*DELETE/);
-  assert.match(source, /refusing purge: unexpected deployment path/);
+  assert.match(source, /PROXYHUB_UNINSTALL_CONFIRM:-.*DELETE/);
+  assert.match(source, /refusing uninstall: unexpected deployment path/);
   assert.match(source, /dc down --volumes --remove-orphans/);
-  assert.match(source, /Configuration, backups, state, logs and Docker volumes retained/);
+  assert.match(source, /uninstall accepts no options/);
+  assert.doesNotMatch(source, /--purge\) purge=true/);
+  assert.doesNotMatch(source, /Configuration, backups, state, logs and Docker volumes retained/);
   assert.match(source, /Docker was retained/);
 });
 
@@ -210,9 +211,8 @@ test('O1.6 failed clean install removes only newly created fixed-layout files', 
   assert.match(installer, /INSTALL_COMPLETE=true/);
 });
 
-test('O1.6 CI covers retained reinstall and confirmed purge', () => {
-  assert.match(checkWorkflow, /env_checksum=/);
-  assert.match(checkWorkflow, /\/tmp\/proxyhub install/);
-  assert.match(checkWorkflow, /PROXYHUB_PURGE_CONFIRM=DELETE/);
-  assert.match(checkWorkflow, /Purged volumes unexpectedly remain/);
+test('L6.1 CI covers unconfirmed no-op and confirmed destructive uninstall', () => {
+  assert.match(checkWorkflow, /PROXYHUB_UNINSTALL_CONFIRM=NO/);
+  assert.match(checkWorkflow, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
+  assert.match(checkWorkflow, /Uninstalled volumes unexpectedly remain/);
 });

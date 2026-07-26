@@ -425,68 +425,43 @@ check_updates_cmd() {
   [ "$failed" = false ]
 }
 uninstall_cmd() {
-  purge=false
-  case "${1:-}" in
-    '') ;;
-    --purge) purge=true ;;
-    *) die "unknown uninstall option: $1" ;;
-  esac
-  if [ "$purge" = true ]; then
-    if [ "$INSTALLED_LAYOUT" = true ]; then
-      [ "$DEPLOY_DIR" = /opt/proxyhub ] ||
-        die "refusing purge: unexpected deployment path"
-      [ "$ENV_FILE" = /etc/proxyhub/proxyhub.env ] ||
-        die "refusing purge: unexpected configuration path"
-      [ "$DATA_DIR" = /var/lib/proxyhub ] ||
-        die "refusing purge: unexpected data path"
-      [ "$LOG_DIR" = /var/log/proxyhub ] ||
-        die "refusing purge: unexpected log path"
-      [ "$COMPOSE_FILE" = /opt/proxyhub/compose.yaml ] ||
-        die "refusing purge: unexpected Compose path"
-    fi
-    echo "Permanent deletion targets:"
-    echo "  $DEPLOY_DIR"
-    echo "  $ENV_FILE"
-    echo "  $DATA_DIR"
-    echo "  $LOG_DIR"
-    echo "  Docker volumes: proxyhub-data, proxyhub-substore-data"
-    if [ "${PROXYHUB_PURGE_CONFIRM:-}" != "DELETE" ]; then
-      [ -t 0 ] || die "set PROXYHUB_PURGE_CONFIRM=DELETE to purge"
-      printf 'Type DELETE to continue: '
-      read -r answer
-      [ "$answer" = "DELETE" ] || die "purge cancelled"
-    fi
-    dc down --volumes --remove-orphans
-    if [ "$INSTALLED_LAYOUT" = true ]; then
-      if [ -L /usr/local/bin/proxyhub ] &&
-        [ "$(readlink /usr/local/bin/proxyhub)" = "$DEPLOY_DIR/proxyhub" ]; then
-        rm -f /usr/local/bin/proxyhub
-      fi
-      rm -rf /opt/proxyhub /etc/proxyhub /var/lib/proxyhub /var/log/proxyhub
-    else
-      rm -f "$ENV_FILE"
-    fi
-    echo "ProxyHub data was permanently deleted. Docker was retained."
-  else
-    dc down --remove-orphans
-    if [ "$INSTALLED_LAYOUT" = true ]; then
-      if [ -L /usr/local/bin/proxyhub ] &&
-        [ "$(readlink /usr/local/bin/proxyhub)" = "$DEPLOY_DIR/proxyhub" ]; then
-        rm -f /usr/local/bin/proxyhub
-      fi
-      rm -f \
-        "$DEPLOY_DIR/compose.yaml" \
-        "$DEPLOY_DIR/.env.example" \
-        "$DEPLOY_DIR/proxyhub" \
-        "$DEPLOY_DIR/VERSION"
-      rmdir "$DEPLOY_DIR" 2>/dev/null || true
-      echo "Containers and deployment files removed."
-      echo "Configuration, backups, state, logs and Docker volumes retained."
-      echo "Reinstall with the published install.sh to reuse existing data."
-    else
-      echo "Containers removed; volumes, .env and backups retained."
-    fi
+  [ "$#" -eq 0 ] || die "uninstall accepts no options"
+  if [ "$INSTALLED_LAYOUT" = true ]; then
+    [ "$DEPLOY_DIR" = /opt/proxyhub ] ||
+      die "refusing uninstall: unexpected deployment path"
+    [ "$ENV_FILE" = /etc/proxyhub/proxyhub.env ] ||
+      die "refusing uninstall: unexpected configuration path"
+    [ "$DATA_DIR" = /var/lib/proxyhub ] ||
+      die "refusing uninstall: unexpected data path"
+    [ "$LOG_DIR" = /var/log/proxyhub ] ||
+      die "refusing uninstall: unexpected log path"
+    [ "$COMPOSE_FILE" = /opt/proxyhub/compose.yaml ] ||
+      die "refusing uninstall: unexpected Compose path"
   fi
+  echo "Permanent deletion targets:"
+  echo "  $DEPLOY_DIR"
+  echo "  $ENV_FILE"
+  echo "  $DATA_DIR"
+  echo "  $LOG_DIR"
+  echo "  Docker volumes: proxyhub-data, proxyhub-substore-data"
+  if [ "${PROXYHUB_UNINSTALL_CONFIRM:-}" != "DELETE" ]; then
+    [ -t 0 ] ||
+      die "set PROXYHUB_UNINSTALL_CONFIRM=DELETE to uninstall"
+    printf 'Type DELETE to continue: '
+    read -r answer
+    [ "$answer" = "DELETE" ] || die "uninstall cancelled"
+  fi
+  dc down --volumes --remove-orphans
+  if [ "$INSTALLED_LAYOUT" = true ]; then
+    if [ -L /usr/local/bin/proxyhub ] &&
+      [ "$(readlink /usr/local/bin/proxyhub)" = "$DEPLOY_DIR/proxyhub" ]; then
+      rm -f /usr/local/bin/proxyhub
+    fi
+    rm -rf /opt/proxyhub /etc/proxyhub /var/lib/proxyhub /var/log/proxyhub
+  else
+    rm -f "$ENV_FILE"
+  fi
+  echo "ProxyHub and Sub-Store data were permanently deleted. Docker was retained."
 }
 lifecycle_cmd() {
   action=$1; shift

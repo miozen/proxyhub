@@ -11,6 +11,7 @@ PORT=3000
 SUBSTORE_VERSION_EXPLICIT=false
 PORT_EXPLICIT=false
 ASSUME_YES=false
+REPLACE=false
 
 DEPLOY_DIR=/opt/proxyhub
 CONFIG_DIR=/etc/proxyhub
@@ -40,6 +41,7 @@ Usage: install.sh [options]
   --image <ProxyHub-image>
   --substore-version <version>
   --port <1-65535>
+  --replace
   --yes
   -h, --help
 EOF
@@ -53,6 +55,7 @@ while [ "$#" -gt 0 ]; do
     --image) PROXYHUB_IMAGE=${2:-}; shift 2 ;;
     --substore-version) SUBSTORE_VERSION=${2:-}; SUBSTORE_VERSION_EXPLICIT=true; shift 2 ;;
     --port) PORT=${2:-}; PORT_EXPLICIT=true; shift 2 ;;
+    --replace) REPLACE=true; shift ;;
     --yes) ASSUME_YES=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
@@ -283,32 +286,65 @@ set_env() {
   mv "$temp" "$file"
 }
 
-read_env() {
-  key=$1 default=$2
-  value=$(sed -n "s/^${key}=//p" "$ENV_FILE" | tail -1)
-  printf '%s\n' "${value:-$default}"
+managed_state_exists() {
+  [ -e "$DEPLOY_DIR" ] || [ -e "$CONFIG_DIR" ] ||
+    [ -e "$DATA_DIR" ] || [ -e "$LOG_DIR" ] ||
+    [ -e "$CLI_PATH" ] || [ -L "$CLI_PATH" ] ||
+    docker container inspect proxyhub-proxyhub-1 >/dev/null 2>&1 ||
+    docker container inspect proxyhub-sub-store-1 >/dev/null 2>&1 ||
+    docker network inspect proxyhub_internal >/dev/null 2>&1 ||
+    docker volume inspect proxyhub-data >/dev/null 2>&1 ||
+    docker volume inspect proxyhub-substore-data >/dev/null 2>&1
 }
 
-legacy_env_file() {
-  candidate=
-  container_id=$(docker ps -aq --filter 'name=^/proxyhub-proxyhub-1$' | head -1)
-  if [ -n "$container_id" ]; then
-    legacy_dir=$(
-      docker inspect "$container_id" \
-        --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' \
-        2>/dev/null || true
-    )
-    candidate=${legacy_dir:+$legacy_dir/.env}
-    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
+show_deletion_targets() {
+  echo "Permanent replacement targets:"
+  echo "  $DEPLOY_DIR"
+  echo "  $CONFIG_DIR"
+  echo "  $DATA_DIR"
+  echo "  $LOG_DIR"
+  echo "  $CLI_PATH"
+  echo "  Containers: proxyhub-proxyhub-1, proxyhub-sub-store-1"
+  echo "  Network: proxyhub_internal"
+  echo "  Volumes: proxyhub-data, proxyhub-substore-data"
+}
+
+confirm_replacement() {
+  show_deletion_targets
+  if [ "${PROXYHUB_REPLACE_CONFIRM:-}" != "DELETE" ]; then
+    [ -t 0 ] ||
+      die "set PROXYHUB_REPLACE_CONFIRM=DELETE with --replace"
+    printf 'Type DELETE to replace the existing installation: '
+    read -r answer
+    [ "$answer" = "DELETE" ] || die "replacement cancelled"
   fi
-  if [ -f /root/proxyhub/.env ]; then
-    printf '%s\n' /root/proxyhub/.env
-    return 0
+}
+
+validate_managed_targets() {
+  if [ -L "$CLI_PATH" ]; then
+    [ "$(readlink "$CLI_PATH")" = "$DEPLOY_DIR/proxyhub" ] ||
+      die "refusing replacement: unexpected CLI link at $CLI_PATH"
+  elif [ -e "$CLI_PATH" ]; then
+    die "refusing replacement: unexpected CLI target at $CLI_PATH"
   fi
-  return 1
+}
+
+remove_managed_state() {
+  if [ -f "$DEPLOY_DIR/compose.yaml" ] && [ -f "$ENV_FILE" ]; then
+    docker compose \
+      --project-directory "$DEPLOY_DIR" \
+      --env-file "$ENV_FILE" \
+      -f "$DEPLOY_DIR/compose.yaml" \
+      down --volumes --remove-orphans >/dev/null 2>&1 || true
+  fi
+  docker rm -f proxyhub-proxyhub-1 proxyhub-sub-store-1 >/dev/null 2>&1 || true
+  docker network rm proxyhub_internal >/dev/null 2>&1 || true
+  docker volume rm proxyhub-data proxyhub-substore-data >/dev/null 2>&1 || true
+  if [ -L "$CLI_PATH" ] &&
+    [ "$(readlink "$CLI_PATH")" = "$DEPLOY_DIR/proxyhub" ]; then
+    rm -f "$CLI_PATH"
+  fi
+  rm -rf "$DEPLOY_DIR" "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
 }
 
 ensure_host_tools
@@ -323,39 +359,13 @@ install_docker
 command -v openssl >/dev/null 2>&1 || die "openssl is required"
 docker info >/dev/null 2>&1 || die "Docker daemon is not running"
 
+SUBSTORE_IMAGE=xream/sub-store:$SUBSTORE_VERSION
 existing_install=false
-existing_data=false
-if docker volume inspect proxyhub-data >/dev/null 2>&1; then
-  existing_data=true
-fi
-if [ -e "$DEPLOY_DIR" ] || [ -e "$ENV_FILE" ] || [ -L "$CLI_PATH" ] ||
-  [ "$existing_data" = true ] ||
-  docker volume inspect proxyhub-substore-data >/dev/null 2>&1; then
-  existing_install=true
-fi
-
-if [ -f "$ENV_FILE" ]; then
-  if [ "$PORT_EXPLICIT" = false ]; then
-    PORT=$(read_env PORT "$PORT")
-  fi
-  if [ "$SUBSTORE_VERSION_EXPLICIT" = false ]; then
-    SUBSTORE_IMAGE=$(read_env SUBSTORE_IMAGE "xream/sub-store:$SUBSTORE_VERSION")
-  else
-    SUBSTORE_IMAGE=xream/sub-store:$SUBSTORE_VERSION
-  fi
-else
-  SUBSTORE_IMAGE=xream/sub-store:$SUBSTORE_VERSION
-fi
-
-[ "$existing_install" = true ] || CLEAN_INSTALL=true
+managed_state_exists && existing_install=true
 
 case "$PORT" in ''|*[!0-9]*) die "configured port must be an integer" ;; esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] ||
   die "configured port must be between 1 and 65535"
-
-if [ "$existing_install" = false ] && port_is_listening; then
-  die "port $PORT is already in use"
-fi
 
 available_kb=$(df -Pk / | awk 'NR == 2 { print $4 }')
 [ "${available_kb:-0}" -ge 524288 ] || die "at least 512 MiB of free disk space is required"
@@ -368,9 +378,17 @@ docker pull "$PROXYHUB_IMAGE"
 docker pull "$SUBSTORE_IMAGE"
 
 if [ "$existing_install" = true ]; then
-  confirm "Existing ProxyHub files were found. Reuse configuration and data?" ||
-    die "installation cancelled"
+  [ "$REPLACE" = true ] ||
+    die "ProxyHub is already installed; use update or rerun with --replace"
+  validate_managed_targets
+  confirm_replacement
+  remove_managed_state
+elif [ "$REPLACE" = true ]; then
+  die "--replace requires an existing ProxyHub installation"
 fi
+
+port_is_listening && die "port $PORT is already in use"
+CLEAN_INSTALL=true
 
 mkdir -p "$DEPLOY_DIR" "$CONFIG_DIR" "$DATA_DIR/backups" "$DATA_DIR/state" "$LOG_DIR"
 install -m 0644 "$tmp_dir/deployment/compose.yaml" "$DEPLOY_DIR/compose.yaml"
@@ -378,34 +396,12 @@ install -m 0600 "$tmp_dir/deployment/.env.example" "$DEPLOY_DIR/.env.example"
 install -m 0755 "$tmp_dir/deployment/proxyhub" "$DEPLOY_DIR/proxyhub"
 install -m 0644 "$tmp_dir/deployment/VERSION" "$DEPLOY_DIR/VERSION"
 
-if [ ! -f "$ENV_FILE" ]; then
-  legacy_env=
-  if [ "$existing_data" = true ]; then
-    legacy_env=$(legacy_env_file || true)
-    [ -n "$legacy_env" ] ||
-      die "existing ProxyHub data requires its original SESSION_SECRET and DATA_ENCRYPTION_KEY"
-  fi
-  install -m 0600 "$tmp_dir/deployment/.env.example" "$ENV_FILE"
-  if [ -n "$legacy_env" ]; then
-    legacy_session=$(sed -n 's/^SESSION_SECRET=//p' "$legacy_env" | tail -1)
-    legacy_data_key=$(sed -n 's/^DATA_ENCRYPTION_KEY=//p' "$legacy_env" | tail -1)
-    [ -n "$legacy_session" ] && [ -n "$legacy_data_key" ] ||
-      die "legacy ProxyHub configuration is missing required secrets"
-    set_env SESSION_SECRET "$legacy_session" "$ENV_FILE"
-    set_env DATA_ENCRYPTION_KEY "$legacy_data_key" "$ENV_FILE"
-  else
-    set_env SESSION_SECRET "$(openssl rand -hex 32)" "$ENV_FILE"
-    set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)" "$ENV_FILE"
-  fi
-fi
-if [ "$PORT_EXPLICIT" = true ] || ! grep -q '^PORT=' "$ENV_FILE"; then
-  set_env PORT "$PORT" "$ENV_FILE"
-fi
+install -m 0600 "$tmp_dir/deployment/.env.example" "$ENV_FILE"
+set_env SESSION_SECRET "$(openssl rand -hex 32)" "$ENV_FILE"
+set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)" "$ENV_FILE"
+set_env PORT "$PORT" "$ENV_FILE"
 set_env PROXYHUB_IMAGE "$PROXYHUB_IMAGE" "$ENV_FILE"
-if [ "$SUBSTORE_VERSION_EXPLICIT" = true ] ||
-  ! grep -q '^SUBSTORE_IMAGE=' "$ENV_FILE"; then
-  set_env SUBSTORE_IMAGE "$SUBSTORE_IMAGE" "$ENV_FILE"
-fi
+set_env SUBSTORE_IMAGE "$SUBSTORE_IMAGE" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 ln -sf "$DEPLOY_DIR/proxyhub" "$CLI_PATH"
 
