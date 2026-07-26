@@ -36,6 +36,7 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: proxyhub:ci
       - name: Validate Compose
         run: docker compose config --quiet
@@ -94,7 +95,7 @@ jobs:
       - name: Scan ProxyHub image
         uses: anchore/scan-action@v7
         with:
-          image: ghcr.io/vonzhen/proxyhub:dev
+          image: proxyhub:ci
           fail-build: true
           severity-cutoff: high
           output-format: table
