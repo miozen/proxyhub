@@ -19,6 +19,10 @@ const deploymentCompose = fs.readFileSync(
   new URL('../deploy/compose.yaml', import.meta.url),
   'utf8'
 );
+const developmentCompose = fs.readFileSync(
+  new URL('../docker-compose.yml', import.meta.url),
+  'utf8'
+);
 const installer = fs.readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
 
 test('F4 scopes lifecycle and update commands to one component', () => {
@@ -123,6 +127,14 @@ test('O1.3 deployment Compose pulls images and exposes only ProxyHub', () => {
   assert.match(checkWorkflow, /-f deploy\/compose\.yaml/);
 });
 
+test('L6.3 bounds Docker logs for both services', () => {
+  for (const compose of [developmentCompose, deploymentCompose]) {
+    assert.equal((compose.match(/driver: json-file/g) || []).length, 2);
+    assert.equal((compose.match(/max-size: "5m"/g) || []).length, 2);
+    assert.equal((compose.match(/max-file: "3"/g) || []).length, 2);
+  }
+});
+
 test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /alpine\) HOST_OS=alpine/);
   assert.match(installer, /debian\) HOST_OS=debian/);
@@ -207,6 +219,15 @@ test('L6.2 CI proves same-digest Sub-Store update is a container no-op', () => {
   assert.match(checkWorkflow, /substore_digest=/);
   assert.match(checkWorkflow, /update sub-store --image "\$substore_digest" --yes/);
   assert.match(checkWorkflow, /Sub-Store same-digest update recreated a container/);
+});
+
+test('L6.3 prunes only old automatic component backups', () => {
+  assert.match(source, /prune_automatic_backups\(\)/);
+  assert.match(source, /-name "pre-update-\$component-\*"/);
+  assert.match(source, /\[ "\$retained" -le 5 \]/);
+  assert.match(source, /refusing to prune unexpected backup path/);
+  assert.match(checkWorkflow, /manual-keep/);
+  assert.match(checkWorkflow, /Automatic Sub-Store backup retention is not 5/);
 });
 
 test('L6.1 uninstall always deletes managed data after exact confirmation', () => {

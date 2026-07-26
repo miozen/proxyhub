@@ -109,7 +109,7 @@ export function createSingboxRouter({ database, config, auth, service }) {
     catch (error) { response.json(error.diagnostics || { success: false, error: error.message, summary: {}, steps: [] }); }
   });
   router.get('/generation/status', (request, response) => {
-    response.json({ runs: database.prepare('SELECT id,status,summary_json,error_text,started_at,finished_at FROM generation_runs WHERE user_id=? ORDER BY started_at DESC LIMIT 20').all(request.auth.user.id) });
+    response.json({ runs: database.prepare('SELECT id,status,summary_json,error_text,started_at,finished_at FROM generation_runs WHERE user_id=? ORDER BY started_at DESC, id DESC LIMIT 10').all(request.auth.user.id) });
   });
 
   router.get('/admin/singbox-settings', auth.requireOwner, (_request, response) => {

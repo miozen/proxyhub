@@ -217,7 +217,30 @@ component_backup_cmd() {
     component_health "$component" || failed=true
   fi
   [ "$failed" = false ] || die "$component backup failed"
+  case "$name" in
+    pre-update-"$component"-*) prune_automatic_backups "$component" ;;
+  esac
   echo "$target"
+}
+prune_automatic_backups() {
+  component=$1
+  validate_component "$component"
+  mkdir -p "$STATE_DIR"
+  list="$STATE_DIR/.automatic-backups-$component"
+  find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d \
+    -name "pre-update-$component-*" -print |
+    sort -r >"$list"
+  retained=0
+  while IFS= read -r backup; do
+    [ -n "$backup" ] || continue
+    retained=$((retained + 1))
+    [ "$retained" -le 5 ] && continue
+    case "$backup" in
+      "$BACKUP_DIR"/pre-update-"$component"-*) rm -rf "$backup" ;;
+      *) rm -f "$list"; die "refusing to prune unexpected backup path" ;;
+    esac
+  done <"$list"
+  rm -f "$list"
 }
 component_restore_cmd() {
   component=$1 target=$2

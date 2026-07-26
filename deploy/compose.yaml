@@ -30,6 +30,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
 
   sub-store:
     image: ${SUBSTORE_IMAGE:?SUBSTORE_IMAGE is required}
@@ -38,6 +43,11 @@ services:
       - substore-data:/opt/app/data
     networks:
       - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
 
 networks:
   internal:

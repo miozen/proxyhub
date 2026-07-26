@@ -108,6 +108,21 @@ test('creates template and subscription then generates config by client token', 
   assert.equal(group.tolerance, 275);
   assert.ok(!result.body.outbounds.some((outbound) => outbound.tag === 'DROP-Node'));
 
+  for (let index = 0; index < 11; index += 1) {
+    result = await call(base, `/api/generate?token=${encodeURIComponent(token.body.token)}`);
+    assert.equal(result.response.status, 200);
+  }
+  const boundedRuns = await call(base, '/api/generation/status', { headers });
+  assert.equal(boundedRuns.body.runs.length, 10);
+  assert.equal(
+    database.prepare('SELECT COUNT(*) AS count FROM generation_runs WHERE user_id=?')
+      .get(login.body.user.id).count,
+    10
+  );
+  assert.ok(database.prepare(`SELECT 1 FROM generation_runs
+    WHERE user_id=? AND status='success' AND config_json IS NOT NULL LIMIT 1`)
+    .get(login.body.user.id));
+
   result = await call(base, '/api/admin/singbox-settings', { headers });
   assert.equal(result.body.settings.region_keywords.HK[0], 'CustomRegion');
   assert.equal(result.body.settings.banned_keywords, 'DROP');
