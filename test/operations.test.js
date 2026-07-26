@@ -230,6 +230,16 @@ test('L6.2 CI proves same-digest Sub-Store update is a container no-op', () => {
   assert.match(checkWorkflow, /Sub-Store same-digest update recreated a container/);
 });
 
+test('L6.4 treats a current image tag and its resolved digest as equivalent', () => {
+  assert.match(source, /current_image_matches_target\(\)/);
+  assert.match(source, /docker inspect "\$container_id" --format '\{\{\.Image\}\}'/);
+  assert.match(source, /docker image inspect "\$target" --format '\{\{\.Id\}\}'/);
+  assert.match(
+    source,
+    /current_image_matches_target "\$component" "\$current" "\$target"/
+  );
+});
+
 test('L6.3 prunes only old automatic component backups', () => {
   assert.match(source, /prune_automatic_backups\(\)/);
   assert.match(source, /-name "pre-update-\$component-\*"/);
