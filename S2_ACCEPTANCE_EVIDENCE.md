@@ -37,20 +37,19 @@ Automated regression: 51/51 tests pass.
 
 ## S2.3 - Template lifecycle
 
-Status: IN_PROGRESS
+Status: PASS
 
-Required evidence:
-
-- create or save a new immutable template version;
-- invalid templates cannot be activated;
-- exactly one valid version is active;
-- client generation uses the active version;
-- activating an older version rolls generation back to that version;
-- remote refresh/cache behavior does not overwrite an immutable version.
+- editing saved a distinct immutable version while retaining the original;
+- exactly one valid template version remained active;
+- invalid references were rejected without changing the active version;
+- client generation used the newly activated version;
+- switching back to the original version restored its generated setting;
+- automated coverage confirms remote refresh creates a child version and a
+  failed refresh leaves the cached immutable content usable.
 
 ## S2.4 - Sub-Store native workflow
 
-Status: PENDING
+Status: IN_PROGRESS
 
 ## S2.5 - Full backup and persistence
 
