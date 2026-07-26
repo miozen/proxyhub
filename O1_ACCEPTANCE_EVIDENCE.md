@@ -7,7 +7,7 @@ Branch: dev
 ## Artifacts
 
 - installer source ref: `232768b`;
-- ProxyHub image: `ghcr.io/vonzhen/proxyhub:dev-df73b34`;
+- ProxyHub image: `ghcr.io/miozen/proxyhub:dev-df73b34`;
 - ProxyHub manifest digest:
   `sha256:f43cc2235fb054331330274ebf87936aa67af483861e22618b23a7555f1fe315`;
 - Sub-Store image: `xream/sub-store:2.36.21`;

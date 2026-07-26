@@ -43,8 +43,8 @@ test('F4 stores and restores independent rollback points', () => {
 test('O1 publishes and verifies amd64 and arm64 image manifests', () => {
   assert.match(imageWorkflow, /docker\/setup-qemu-action@v3/);
   assert.match(imageWorkflow, /platforms:\s*linux\/amd64,linux\/arm64/);
-  assert.match(imageWorkflow, /image=ghcr\.io\/vonzhen\/proxyhub:dev/);
-  assert.match(imageWorkflow, /image="ghcr\.io\/vonzhen\/proxyhub:\$GITHUB_REF_NAME"/);
+  assert.match(imageWorkflow, /image=ghcr\.io\/miozen\/proxyhub:dev/);
+  assert.match(imageWorkflow, /image="ghcr\.io\/miozen\/proxyhub:\$GITHUB_REF_NAME"/);
   assert.match(imageWorkflow, /imagetools inspect "\$image"/);
   assert.match(imageWorkflow, /imagetools inspect xream\/sub-store:2\.36\.21/);
   assert.match(imageWorkflow, /grep -q 'linux\/amd64'/);
@@ -87,7 +87,7 @@ test('S3 keeps CI on dev and master while targeting expensive checks by changed 
 test('CI vulnerability scan checks the image built by the same job', () => {
   assert.match(checkWorkflow, /load:\s*true/);
   assert.match(checkWorkflow, /image:\s*proxyhub:ci/);
-  assert.doesNotMatch(checkWorkflow, /image:\s*ghcr\.io\/vonzhen\/proxyhub:dev/);
+  assert.doesNotMatch(checkWorkflow, /image:\s*ghcr\.io\/miozen\/proxyhub:dev/);
 });
 
 test('O1.2 creates a minimal checksummed deployment artifact', () => {
@@ -159,12 +159,14 @@ test('O1.4 release artifact includes the executable installer', () => {
 
 test('O1.5 discovers approved component images and pins digests', () => {
   assert.match(source, /latest_proxyhub_tag\(\)/);
-  assert.match(source, /repos\/Vonzhen\/proxyhub\/releases\/latest/);
+  assert.match(source, /repos\/miozen\/proxyhub\/releases\/latest/);
   assert.match(source, /xream\/sub-store:\$tag/);
   assert.match(source, /resolve_image_digest\(\)/);
   assert.match(source, /docker image inspect "\$image"/);
   assert.match(source, /@sha256:/);
   assert.match(source, /image repository is not approved for \$component/);
+  assert.match(source, /ghcr\.io\/miozen\/proxyhub/);
+  assert.match(source, /ghcr\.io\/vonzhen\/proxyhub/);
 });
 
 test('O1.5 supports confirmed automatic and explicit component updates', () => {

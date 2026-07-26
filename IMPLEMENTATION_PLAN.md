@@ -344,8 +344,8 @@ Goal: validate the exact GHCR dev artifact in a real target environment.
 Artifact:
 
 ```text
-ghcr.io/vonzhen/proxyhub:dev
-ghcr.io/vonzhen/proxyhub:dev-<sha>
+ghcr.io/miozen/proxyhub:dev
+ghcr.io/miozen/proxyhub:dev-<sha>
 ```
 
 Tasks:

@@ -2,7 +2,7 @@
 
 ProxyHub 是面向 VPS 和内网虚拟机的 sing-box 配置与 Sub-Store 统一管理平台。它将原 `singbox-center` 的用户、订阅、模板和配置生成功能，与官方 Sub-Store 的订阅管理能力整合到同一套登录系统中。
 
-当前稳定版本：`v0.1.0`
+当前稳定版本：`v0.1.1`
 
 ## 主要功能
 
@@ -47,7 +47,7 @@ ProxyHub 不挂载 Docker Socket。容器维护只能通过宿主机上的 `prox
 
 ```sh
 curl -fsSLo /tmp/proxyhub-install.sh \
-  https://github.com/Vonzhen/proxyhub/releases/latest/download/install.sh
+  https://github.com/miozen/proxyhub/releases/latest/download/install.sh
 chmod +x /tmp/proxyhub-install.sh
 sudo /tmp/proxyhub-install.sh
 ```
@@ -64,14 +64,14 @@ http://服务器IP:3000/
 
 ```sh
 # 安装指定 ProxyHub 版本
-sudo /tmp/proxyhub-install.sh --version 0.1.0
+sudo /tmp/proxyhub-install.sh --version 0.1.1
 
 # 使用其他宿主机端口
 sudo /tmp/proxyhub-install.sh --port 3100
 
 # 同时指定 Sub-Store 版本
 sudo /tmp/proxyhub-install.sh \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --substore-version 2.36.21 \
   --port 3000
 
@@ -165,20 +165,20 @@ proxyhub update proxyhub
 更新到指定版本：
 
 ```sh
-proxyhub update proxyhub --version 0.1.0
+proxyhub update proxyhub --version 0.1.1
 ```
 
 使用指定镜像标签或 digest：
 
 ```sh
 proxyhub update proxyhub \
-  --image ghcr.io/vonzhen/proxyhub:v0.1.0
+  --image ghcr.io/miozen/proxyhub:v0.1.1
 ```
 
 非交互确认：
 
 ```sh
-proxyhub update proxyhub --version 0.1.0 --yes
+proxyhub update proxyhub --version 0.1.1 --yes
 ```
 
 ### 更新 Sub-Store
@@ -338,11 +338,11 @@ curl -fsS http://127.0.0.1:3000/healthz
 
 ## 镜像与发布
 
-- 稳定镜像：`ghcr.io/vonzhen/proxyhub:v0.1.0`
-- 最新稳定镜像：`ghcr.io/vonzhen/proxyhub:latest`
+- 稳定镜像：`ghcr.io/miozen/proxyhub:v0.1.1`
+- 最新稳定镜像：`ghcr.io/miozen/proxyhub:latest`
 - 支持平台：`linux/amd64`、`linux/arm64`
 - Sub-Store：官方 `xream/sub-store`
-- Release：[GitHub Releases](https://github.com/Vonzhen/proxyhub/releases)
+- Release：[GitHub Releases](https://github.com/miozen/proxyhub/releases)
 
 正式镜像和一键安装资产由 `v*` 标签触发发布。`dev` 分支只在手动运行 `images` 工作流时发布开发镜像。
 
@@ -362,4 +362,3 @@ curl -fsS http://127.0.0.1:3000/healthz
 - [安全说明](SECURITY.md)
 - [完整实施计划](IMPLEMENTATION_PLAN.md)
 - [发布收尾计划](RELEASE_COMPLETION_PLAN.md)
-

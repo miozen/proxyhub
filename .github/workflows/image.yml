@@ -33,7 +33,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/vonzhen/proxyhub
+          images: ghcr.io/miozen/proxyhub
           tags: |
             type=raw,value=dev,enable=${{ github.event_name == 'workflow_dispatch' }}
             type=sha,prefix=dev-,enable=${{ github.event_name == 'workflow_dispatch' }}
@@ -51,9 +51,9 @@ jobs:
       - name: Verify ProxyHub manifest platforms
         run: |
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            image=ghcr.io/vonzhen/proxyhub:dev
+            image=ghcr.io/miozen/proxyhub:dev
           else
-            image="ghcr.io/vonzhen/proxyhub:$GITHUB_REF_NAME"
+            image="ghcr.io/miozen/proxyhub:$GITHUB_REF_NAME"
           fi
           manifest="$(docker buildx imagetools inspect "$image")"
           printf '%s\n' "$manifest"

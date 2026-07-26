@@ -103,7 +103,7 @@ release archive.
 Stable:
 
 ```sh
-curl -fsSL https://github.com/Vonzhen/proxyhub/releases/latest/download/install.sh \
+curl -fsSL https://github.com/miozen/proxyhub/releases/latest/download/install.sh \
   -o /tmp/proxyhub-install.sh
 sh /tmp/proxyhub-install.sh
 ```
@@ -120,7 +120,7 @@ Dev acceptance:
 sh /tmp/proxyhub-install.sh \
   --channel dev \
   --ref <commit-sha> \
-  --image ghcr.io/vonzhen/proxyhub:dev-<sha>
+  --image ghcr.io/miozen/proxyhub:dev-<sha>
 ```
 
 Supported options:
@@ -182,7 +182,7 @@ Explicit selection:
 ```text
 proxyhub update proxyhub --version <semver>
 proxyhub update sub-store --version <semver>
-proxyhub update proxyhub --image ghcr.io/vonzhen/proxyhub:<approved-tag-or-digest>
+proxyhub update proxyhub --image ghcr.io/miozen/proxyhub:<approved-tag-or-digest>
 proxyhub update sub-store --image xream/sub-store:<approved-tag-or-digest>
 ```
 

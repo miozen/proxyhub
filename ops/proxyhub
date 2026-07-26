@@ -118,7 +118,7 @@ component_env_key() {
 }
 component_default_image() {
   case "$1" in
-    proxyhub) echo ghcr.io/vonzhen/proxyhub:dev ;;
+    proxyhub) echo ghcr.io/miozen/proxyhub:dev ;;
     sub-store) echo xream/sub-store:2.36.21 ;;
     *) die "component must be proxyhub or sub-store" ;;
   esac
@@ -163,7 +163,7 @@ install_cmd() {
     cp "$DEPLOY_DIR/.env.example" "$ENV_FILE"
     set_env SESSION_SECRET "$(openssl rand -hex 32)"
     set_env DATA_ENCRYPTION_KEY "$(openssl rand -hex 32)"
-    set_env PROXYHUB_IMAGE "ghcr.io/vonzhen/proxyhub:dev"
+    set_env PROXYHUB_IMAGE "ghcr.io/miozen/proxyhub:dev"
     set_env AUTO_UPDATE_ENABLED "false"
     chmod 600 "$ENV_FILE"
   fi
@@ -236,6 +236,7 @@ validate_image() {
   component=$1 image=$2
   case "$image" in *[!A-Za-z0-9_./:@-]*) die "invalid image reference" ;; esac
   case "$component:$image" in
+    proxyhub:ghcr.io/miozen/proxyhub:*|proxyhub:ghcr.io/miozen/proxyhub@sha256:*|\
     proxyhub:ghcr.io/vonzhen/proxyhub:*|proxyhub:ghcr.io/vonzhen/proxyhub@sha256:*) ;;
     sub-store:xream/sub-store:*|sub-store:xream/sub-store@sha256:*) ;;
     *) die "image repository is not approved for $component" ;;
@@ -245,10 +246,10 @@ validate_image() {
 latest_proxyhub_tag() {
   if command -v curl >/dev/null 2>&1; then
     metadata=$(curl -fsSL --connect-timeout 15 \
-      https://api.github.com/repos/Vonzhen/proxyhub/releases/latest)
+      https://api.github.com/repos/miozen/proxyhub/releases/latest)
   elif command -v wget >/dev/null 2>&1; then
     metadata=$(wget -qO- \
-      https://api.github.com/repos/Vonzhen/proxyhub/releases/latest)
+      https://api.github.com/repos/miozen/proxyhub/releases/latest)
   else
     die "curl or wget is required for version discovery"
   fi
@@ -272,7 +273,7 @@ candidate_tag() {
     else
       tag=$(latest_proxyhub_tag)
     fi
-    image=ghcr.io/vonzhen/proxyhub:$tag
+    image=ghcr.io/miozen/proxyhub:$tag
   else
     tag=${version:-latest}
     image=xream/sub-store:$tag
@@ -287,7 +288,12 @@ resolve_image_digest() {
   case "$image" in *@sha256:*) printf '%s\n' "$image"; return ;; esac
   docker pull "$image" >&2
   case "$component" in
-    proxyhub) repository=ghcr.io/vonzhen/proxyhub ;;
+    proxyhub)
+      case "$image" in
+        ghcr.io/vonzhen/proxyhub:*) repository=ghcr.io/vonzhen/proxyhub ;;
+        *) repository=ghcr.io/miozen/proxyhub ;;
+      esac
+      ;;
     sub-store) repository=xream/sub-store ;;
   esac
   digest=$(docker image inspect "$image" \

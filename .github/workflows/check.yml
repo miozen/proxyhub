@@ -152,7 +152,7 @@ jobs:
             exit 1
           fi
           substore_id="$(docker compose ps -q sub-store)"
-          if /tmp/proxyhub update --proxyhub-image ghcr.io/vonzhen/proxyhub:missing-ci; then
+          if /tmp/proxyhub update --proxyhub-image ghcr.io/miozen/proxyhub:missing-ci; then
             echo "Injected update failure unexpectedly succeeded"
             exit 1
           fi
