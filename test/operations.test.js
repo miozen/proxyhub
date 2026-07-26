@@ -130,8 +130,10 @@ test('O1.4 installer validates hosts, channels and immutable inputs', () => {
   assert.match(installer, /x86_64\|amd64\) HOST_ARCH=amd64/);
   assert.match(installer, /aarch64\|arm64\) HOST_ARCH=arm64/);
   assert.match(installer, /sha256sum -c archive\.sha256/);
-  assert.match(installer, /\[\!\[:alnum:\]\._-\]/);
-  assert.doesNotMatch(installer, /\[\!A-Za-z0-9\._-\]/);
+  assert.match(installer, /valid_version\(\)/);
+  assert.match(installer, /grep -Eq '\^\[A-Za-z0-9\._-\]\+\$'/);
+  assert.match(installer, /valid_version "\$RELEASE_TAG" \|\| die "invalid release version"/);
+  assert.doesNotMatch(installer, /\[\!\[:alnum:\]\._-\]/);
   assert.match(installer, /--ref is required for the dev channel/);
   assert.match(installer, /--image is required for the dev channel/);
   assert.match(installer, /port \$PORT is already in use/);
