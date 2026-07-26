@@ -376,7 +376,7 @@ Tasks:
 - P9.1 request explicit approval to create `dev -> master` PR.
 - P9.2 review complete diff and required checks.
 - P9.3 merge only after explicit approval.
-- P9.4 create `v0.1.0` candidate.
+- P9.4 create `v0.1.0` directly; no release-candidate series.
 - P9.5 publish fixed GHCR version tags.
 - P9.6 redeploy using the fixed image and repeat smoke/recovery tests.
 - P9.7 stabilize before considering `v1.0.0`.
@@ -386,6 +386,9 @@ Hard stops:
 - no direct push to `master`;
 - no PR creation without explicit approval;
 - no merge, tag or release without explicit approval.
+
+Release execution details and the simplified Actions policy are maintained in
+`RELEASE_COMPLETION_PLAN.md`.
 
 ## 13. Immediate execution sequence
 

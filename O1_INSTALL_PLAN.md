@@ -1,6 +1,6 @@
 # O1 - Multi-architecture one-command installation
 
-Status: APPROVED_FOR_IMPLEMENTATION
+Status: ACCEPTED
 Branch: dev only
 Depends on: command-line-only container operations
 
@@ -245,3 +245,10 @@ Real hosts:
 - no arbitrary image repositories or shell input;
 - no destructive purge without exact confirmation;
 - no claim of arm64 support until native arm64 acceptance passes.
+
+## Acceptance result
+
+O1.1-O1.7 are accepted on 2026-07-26. Native Ubuntu ARM64 installation,
+health, isolation, component updates, component rollbacks, normal uninstall and
+retained-data reinstall passed. Exact artifacts and deferred compatibility
+coverage are recorded in `O1_ACCEPTANCE_EVIDENCE.md`.
