@@ -268,14 +268,14 @@ test('L6.4 documents destructive lifecycle and exact dev host gates', () => {
     assert.match(guide, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
     assert.match(guide, /PROXYHUB_REPLACE_CONFIRM=DELETE/);
     assert.match(guide, /5(?:MB|m).{0,20}3/s);
-    assert.match(guide, /鏈€杩?{0,10}`?10`? 娆?s);
-    assert.match(guide, /鏈€杩?{0,10}`?5`? 浠?s);
+    assert.match(guide, /最近.{0,10}`?10`? 次/s);
+    assert.match(guide, /最近.{0,10}`?5`? 份/s);
   }
   assert.match(hostAcceptance, /Alpine `amd64`/);
   assert.match(hostAcceptance, /Ubuntu `arm64`/);
   assert.match(hostAcceptance, /--channel dev/);
   assert.match(hostAcceptance, /ghcr\.io\/miozen\/proxyhub:dev-/);
-  assert.match(hostAcceptance, /Sub-Store 鍘熺敓澶囦唤/);
+  assert.match(hostAcceptance, /Sub-Store 原生备份/);
   assert.match(hostAcceptance, /max-size=5m/);
   assert.match(hostAcceptance, /all managed state removed/);
 });
@@ -306,4 +306,3 @@ test('L6.1 CI covers unconfirmed no-op and confirmed destructive uninstall', () 
   assert.match(checkWorkflow, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
   assert.match(checkWorkflow, /Uninstalled volumes unexpectedly remain/);
 });
-
