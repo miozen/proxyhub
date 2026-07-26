@@ -4,7 +4,7 @@ services:
   proxyhub:
     build:
       context: .
-    image: ${PROXYHUB_IMAGE:-ghcr.io/vonzhen/proxyhub:dev}
+    image: ${PROXYHUB_IMAGE:-ghcr.io/miozen/proxyhub:dev}
     restart: unless-stopped
     environment:
       NODE_ENV: production

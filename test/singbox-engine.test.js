@@ -104,7 +104,7 @@ test('injects AnyTLS and future protocol fields unchanged into generated config'
 });
 
 test('matches the original singbox-center core fixture', () => {
-  // Baseline: Vonzhen/singbox-center src/engine.js at badfd389436ed51450ebad6c9fc9c1c2cc717784.
+  // Baseline: miozen/singbox-center src/engine.js at badfd389436ed51450ebad6c9fc9c1c2cc717784.
   const nodes = normalizeNodes({ outbounds: [
     { type: 'vless', tag: 'HK-A' },
     { type: 'vless', tag: 'US-A' },

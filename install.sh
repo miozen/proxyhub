@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPOSITORY=Vonzhen/proxyhub
+REPOSITORY=miozen/proxyhub
 CHANNEL=stable
 VERSION=
 REF=
@@ -168,7 +168,7 @@ prepare_stable_assets() {
   mkdir "$tmp_dir/deployment"
   tar -xzf "$tmp_dir/$archive_name" -C "$tmp_dir/deployment"
   [ -n "$PROXYHUB_IMAGE" ] ||
-    PROXYHUB_IMAGE=ghcr.io/vonzhen/proxyhub:$RELEASE_TAG
+    PROXYHUB_IMAGE=ghcr.io/miozen/proxyhub:$RELEASE_TAG
 }
 
 prepare_dev_assets() {
@@ -180,8 +180,8 @@ prepare_dev_assets() {
     die "--ref must contain 7 to 40 hexadecimal characters"
   [ -n "$PROXYHUB_IMAGE" ] || die "--image is required for the dev channel"
   case "$PROXYHUB_IMAGE" in
-    ghcr.io/vonzhen/proxyhub:dev-*) ;;
-    *) die "dev image must be ghcr.io/vonzhen/proxyhub:dev-<sha>" ;;
+    ghcr.io/miozen/proxyhub:dev-*) ;;
+    *) die "dev image must be ghcr.io/miozen/proxyhub:dev-<sha>" ;;
   esac
 
   source_archive=$tmp_dir/source.tar.gz

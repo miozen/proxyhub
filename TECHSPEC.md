@@ -14,7 +14,7 @@ http: express
 database: sqlite/better-sqlite3
 frontend: vue3-browser-build
 deployment: docker-compose
-registry: ghcr.io/vonzhen/proxyhub
+registry: ghcr.io/miozen/proxyhub
 host_port_default: 3000
 license: MIT
 ```
@@ -289,7 +289,7 @@ backup/restore format. ProxyHub does not duplicate those business operations.
 ProxyHub:
 
 ```yaml
-source: ghcr.io/vonzhen/proxyhub
+source: ghcr.io/miozen/proxyhub
 dev_tags: [dev, dev-sha]
 master_tags: [master, master-sha]
 release_tags: [vX.Y.Z, X.Y, X, latest]

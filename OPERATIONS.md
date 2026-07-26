@@ -34,9 +34,9 @@ confirmation. For non-interactive operation use `--yes`. Select a version or an
 approved image explicitly when needed:
 
 ```sh
-proxyhub update proxyhub --version 0.1.0
+proxyhub update proxyhub --version 0.1.1
 proxyhub update sub-store --version 2.36.21
-proxyhub update proxyhub --image ghcr.io/vonzhen/proxyhub:<tag-or-digest>
+proxyhub update proxyhub --image ghcr.io/miozen/proxyhub:<tag-or-digest>
 proxyhub update sub-store --image xream/sub-store:<tag-or-digest>
 ```
 

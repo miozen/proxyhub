@@ -69,7 +69,7 @@ R1 is complete.
 
 Baseline:
 
-- original repository: `Vonzhen/singbox-center`;
+- original repository: `miozen/singbox-center`;
 - source: `src/engine.js`;
 - fixed commit: `badfd389436ed51450ebad6c9fc9c1c2cc717784`.
 
