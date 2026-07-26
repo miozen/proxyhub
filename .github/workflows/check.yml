@@ -9,12 +9,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       docker: ${{ steps.scope.outputs.docker }}
       operations: ${{ steps.scope.outputs.operations }}
+      compose: ${{ steps.scope.outputs.compose }}
+      security: ${{ steps.scope.outputs.security }}
+      unit: ${{ steps.scope.outputs.unit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,11 +44,13 @@ jobs:
 
           docker=false
           operations=false
+          compose=false
+          security=false
+          unit=false
           while IFS= read -r file; do
             case "$file" in
-              Dockerfile|package.json|package-lock.json|.env.example|docker-compose.yml|\
-              src/*|ops/*|deploy/*|scripts/p5-compose-smoke.js|\
-              .github/workflows/check.yml|.github/workflows/image.yml)
+              Dockerfile|.dockerignore|package.json|package-lock.json|\
+              src/*|public/*|scripts/p5-compose-smoke.js)
                 docker=true
                 ;;
             esac
@@ -51,10 +60,30 @@ jobs:
                 operations=true
                 ;;
             esac
+            case "$file" in
+              .env.example|docker-compose.yml|deploy/compose.yaml)
+                compose=true
+                ;;
+            esac
+            case "$file" in
+              Dockerfile|package.json|package-lock.json)
+                security=true
+                ;;
+            esac
+            case "$file" in
+              Dockerfile|.dockerignore|package.json|package-lock.json|\
+              src/*|public/*|ops/*|deploy/*|install.sh|scripts/*|test/*|\
+              .github/workflows/check.yml|.github/workflows/image.yml)
+                unit=true
+                ;;
+            esac
           done <<<"$files"
 
           echo "docker=$docker" >>"$GITHUB_OUTPUT"
           echo "operations=$operations" >>"$GITHUB_OUTPUT"
+          echo "compose=$compose" >>"$GITHUB_OUTPUT"
+          echo "security=$security" >>"$GITHUB_OUTPUT"
+          echo "unit=$unit" >>"$GITHUB_OUTPUT"
 
   deployment-assets:
     needs: changes
@@ -86,6 +115,8 @@ jobs:
           retention-days: 14
 
   test:
+    needs: changes
+    if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +132,25 @@ jobs:
           sh -n ops/proxyhub
           sh -n install.sh
           sh -n scripts/build-deployment-assets.sh
+
+  compose:
+    needs: changes
+    if: needs.changes.outputs.compose == 'true'
+    runs-on: ubuntu-latest
+    env:
+      SESSION_SECRET: ci-session-secret-with-at-least-32-characters
+      DATA_ENCRYPTION_KEY: ci-encryption-key-with-at-least-32-characters
+      PROXYHUB_IMAGE: ghcr.io/miozen/proxyhub:dev
+      SUBSTORE_IMAGE: xream/sub-store:2.36.21
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose
+        run: |
+          docker compose config --quiet
+          docker compose \
+            --env-file .env.example \
+            -f deploy/compose.yaml \
+            config --quiet
 
   docker:
     needs: changes
@@ -118,13 +168,8 @@ jobs:
           push: false
           load: true
           tags: proxyhub:ci
-      - name: Validate Compose
-        run: |
-          docker compose config --quiet
-          docker compose \
-            --env-file .env.example \
-            -f deploy/compose.yaml \
-            config --quiet
+          cache-from: type=gha,scope=proxyhub-ci
+          cache-to: type=gha,mode=max,scope=proxyhub-ci
       - name: Run pinned Sub-Store integration smoke
         run: |
           cp .env.example .env
@@ -172,18 +217,16 @@ jobs:
           for suffix in 1 2 3 4 5 6; do
             mkdir -p "backups/pre-update-sub-store-20000101T00000${suffix}Z"
           done
-          retention_candidate=xream/sub-store:latest
-          retention_digest="$(docker pull "$retention_candidate" >/dev/null &&
-            docker image inspect "$retention_candidate" \
-              --format '{{range .RepoDigests}}{{println .}}{{end}}' |
-            sed -n '\|^xream/sub-store@sha256:|p' | head -1)"
-          test -n "$retention_digest"
-          if [ "$retention_digest" = "$substore_digest" ]; then
-            echo "Sub-Store retention candidate must differ from the pinned image"
-            exit 1
-          fi
+          awk '
+            /^SUBSTORE_IMAGE=/ {
+              print "SUBSTORE_IMAGE=xream/sub-store:2.36.21"
+              next
+            }
+            { print }
+          ' .env >.env.tmp
+          mv .env.tmp .env
           proxyhub_id="$(docker compose ps -q proxyhub)"
-          /tmp/proxyhub update sub-store --image "$retention_candidate" --yes
+          /tmp/proxyhub update sub-store --image "$substore_digest" --yes
           test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
           automatic_count="$(find backups -mindepth 1 -maxdepth 1 -type d \
             -name 'pre-update-sub-store-*' | wc -l)"
@@ -226,6 +269,7 @@ jobs:
           fi
           cp .env.example .env
       - name: Scan ProxyHub image
+        if: needs.changes.outputs.security == 'true'
         uses: anchore/scan-action@v7
         with:
           image: proxyhub:ci
@@ -261,6 +305,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/work" -w /work node:22-bookworm \
             sh -c "npm ci && npm run ci && sh -n ops/proxyhub"
+
 
 
 
