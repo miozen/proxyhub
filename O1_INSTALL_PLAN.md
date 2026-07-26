@@ -51,6 +51,14 @@ SHA256SUMS
 install.sh
 ```
 
+Implementation sequence:
+
+- O1.2 builds the deployment archive and `SHA256SUMS` as a short-lived
+  Actions Artifact on `dev`;
+- O1.3 adapts the packaged Compose and CLI to the fixed host layout;
+- O1.4 adds the fully functional `install.sh` to the same asset set;
+- no incomplete installer is published as an artifact.
+
 Deployment archive contains only runtime host files:
 
 ```text

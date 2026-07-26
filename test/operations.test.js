@@ -11,6 +11,10 @@ const checkWorkflow = fs.readFileSync(
   new URL('../.github/workflows/check.yml', import.meta.url),
   'utf8'
 );
+const assetBuilder = fs.readFileSync(
+  new URL('../scripts/build-deployment-assets.sh', import.meta.url),
+  'utf8'
+);
 
 test('F4 scopes lifecycle and update commands to one component', () => {
   assert.match(source, /dc up -d --no-deps "\$component"/);
@@ -53,4 +57,16 @@ test('CI vulnerability scan checks the image built by the same job', () => {
   assert.match(checkWorkflow, /load:\s*true/);
   assert.match(checkWorkflow, /image:\s*proxyhub:ci/);
   assert.doesNotMatch(checkWorkflow, /image:\s*ghcr\.io\/vonzhen\/proxyhub:dev/);
+});
+
+test('O1.2 creates a minimal checksummed deployment artifact', () => {
+  assert.match(assetBuilder, /proxyhub-deploy-\$version\.tar\.gz/);
+  assert.match(assetBuilder, /docker-compose\.yml" "\$stage\/compose\.yaml/);
+  assert.match(assetBuilder, /\.env\.example" "\$stage\/\.env\.example/);
+  assert.match(assetBuilder, /ops\/proxyhub" "\$stage\/proxyhub/);
+  assert.match(assetBuilder, /--sort=name/);
+  assert.match(assetBuilder, /sha256sum "\$archive_name" >SHA256SUMS/);
+  assert.match(checkWorkflow, /sha256sum -c SHA256SUMS/);
+  assert.match(checkWorkflow, /diff -u expected\.txt contents\.txt/);
+  assert.match(checkWorkflow, /actions\/upload-artifact@v4/);
 });
