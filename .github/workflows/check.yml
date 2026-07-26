@@ -176,7 +176,7 @@ jobs:
           retention_digest="$(docker pull "$retention_candidate" >/dev/null &&
             docker image inspect "$retention_candidate" \
               --format '{{range .RepoDigests}}{{println .}}{{end}}' |
-            sed -n '\\|^xream/sub-store@sha256:|p' | head -1)"
+            sed -n '\|^xream/sub-store@sha256:|p' | head -1)"
           test -n "$retention_digest"
           if [ "$retention_digest" = "$substore_digest" ]; then
             echo "Sub-Store retention candidate must differ from the pinned image"
