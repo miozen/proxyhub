@@ -415,10 +415,10 @@ R5  finish and accept P5
 R6  start P6 only after P0-P5 are accepted
 ```
 
-Current checkpoint: `R7` code complete with both workflows green. P7.A1-P7.A3
-and P7.A5 pass; P7.A4 recovery execution remains deferred to the P8 target host.
-P8 is active and limited to P8.1-P8.10. This recorded sequence exception does
-not mark P0, P6 or P7 accepted and does not relax their VM gates.
+Current checkpoint: `L6.1-L6.3` code complete with GitHub checks green.
+`L6.4` documentation is being prepared; its Alpine amd64 and Ubuntu arm64
+destructive host gates remain pending. No release is authorized until both
+host checklists in `HOST_ACCEPTANCE.md` pass.
 
 
 

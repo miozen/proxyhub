@@ -24,6 +24,15 @@ const developmentCompose = fs.readFileSync(
   'utf8'
 );
 const installer = fs.readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
+const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+const operationsGuide = fs.readFileSync(
+  new URL('../OPERATIONS.md', import.meta.url),
+  'utf8'
+);
+const hostAcceptance = fs.readFileSync(
+  new URL('../HOST_ACCEPTANCE.md', import.meta.url),
+  'utf8'
+);
 
 test('F4 scopes lifecycle and update commands to one component', () => {
   assert.match(source, /dc up -d --no-deps "\$component"/);
@@ -228,6 +237,24 @@ test('L6.3 prunes only old automatic component backups', () => {
   assert.match(source, /refusing to prune unexpected backup path/);
   assert.match(checkWorkflow, /manual-keep/);
   assert.match(checkWorkflow, /Automatic Sub-Store backup retention is not 5/);
+});
+
+test('L6.4 documents destructive lifecycle and exact dev host gates', () => {
+  for (const guide of [readme, operationsGuide]) {
+    assert.doesNotMatch(guide, /--purge|PROXYHUB_PURGE_CONFIRM/);
+    assert.match(guide, /PROXYHUB_UNINSTALL_CONFIRM=DELETE/);
+    assert.match(guide, /PROXYHUB_REPLACE_CONFIRM=DELETE/);
+    assert.match(guide, /5(?:MB|m).{0,20}3/s);
+    assert.match(guide, /最近.{0,10}`?10`? 次/s);
+    assert.match(guide, /最近.{0,10}`?5`? 份/s);
+  }
+  assert.match(hostAcceptance, /Alpine `amd64`/);
+  assert.match(hostAcceptance, /Ubuntu `arm64`/);
+  assert.match(hostAcceptance, /--channel dev/);
+  assert.match(hostAcceptance, /ghcr\.io\/miozen\/proxyhub:dev-/);
+  assert.match(hostAcceptance, /Sub-Store 原生备份/);
+  assert.match(hostAcceptance, /max-size=5m/);
+  assert.match(hostAcceptance, /all managed state removed/);
 });
 
 test('L6.1 uninstall always deletes managed data after exact confirmation', () => {
