@@ -58,12 +58,19 @@ Sub-Store resolves the official `xream/sub-store:latest` image. Before applying
 an update, both are pinned to an immutable digest. No scheduled update is
 enabled.
 
-`proxyhub uninstall` removes containers but retains `.env`, backups and volumes.
-Permanent deletion requires:
+For a packaged installation, `proxyhub uninstall` removes containers, the
+network, `/opt/proxyhub` deployment files and the CLI link. It retains
+`/etc/proxyhub`, `/var/lib/proxyhub`, logs and both Docker volumes so a later
+installer run restores the same users and data.
+
+Permanent deletion first lists the exact targets and requires:
 
 ```sh
 PROXYHUB_PURGE_CONFIRM=DELETE proxyhub uninstall --purge
 ```
+
+Without the environment variable, an interactive terminal must type `DELETE`.
+ProxyHub never uninstalls Docker.
 
 After recovery verify `/healthz`, owner login, configuration generation, Sub-Store
 UI/API, sync history and volume persistence. Never paste secrets or subscription

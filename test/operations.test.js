@@ -150,3 +150,29 @@ test('O1.5 supports confirmed automatic and explicit component updates', () => {
   assert.match(source, /perform_update "\$component" "\$target"/);
   assert.match(source, /for component in proxyhub sub-store/);
 });
+
+test('O1.6 uninstall preserves data unless exact purge is confirmed', () => {
+  assert.match(source, /Permanent deletion targets:/);
+  assert.match(source, /Type DELETE to continue:/);
+  assert.match(source, /PROXYHUB_PURGE_CONFIRM:-.*DELETE/);
+  assert.match(source, /refusing purge: unexpected deployment path/);
+  assert.match(source, /dc down --volumes --remove-orphans/);
+  assert.match(source, /Configuration, backups, state, logs and Docker volumes retained/);
+  assert.match(source, /Docker was retained/);
+});
+
+test('O1.6 failed clean install removes only newly created fixed-layout files', () => {
+  assert.match(installer, /CLEAN_INSTALL=false/);
+  assert.match(installer, /INSTALL_COMPLETE=false/);
+  assert.match(installer, /\[ "\$status" -ne 0 \]/);
+  assert.match(installer, /down --volumes --remove-orphans/);
+  assert.match(installer, /Clean installation failed; newly created ProxyHub files were removed/);
+  assert.match(installer, /INSTALL_COMPLETE=true/);
+});
+
+test('O1.6 CI covers retained reinstall and confirmed purge', () => {
+  assert.match(checkWorkflow, /env_checksum=/);
+  assert.match(checkWorkflow, /\/tmp\/proxyhub install/);
+  assert.match(checkWorkflow, /PROXYHUB_PURGE_CONFIRM=DELETE/);
+  assert.match(checkWorkflow, /Purged volumes unexpectedly remain/);
+});

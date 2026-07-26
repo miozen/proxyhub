@@ -119,14 +119,26 @@ jobs:
             echo "Component-less rollback unexpectedly succeeded"
             exit 1
           fi
+          env_checksum="$(sha256sum .env | awk '{print $1}')"
+          proxyhub_volume="$(docker volume inspect proxyhub-data --format '{{.Name}}')"
+          substore_volume="$(docker volume inspect proxyhub-substore-data --format '{{.Name}}')"
           /tmp/proxyhub uninstall
           docker volume inspect proxyhub-data proxyhub-substore-data
+          /tmp/proxyhub install
+          test "$(sha256sum .env | awk '{print $1}')" = "$env_checksum"
+          test "$(docker volume inspect proxyhub-data --format '{{.Name}}')" = "$proxyhub_volume"
+          test "$(docker volume inspect proxyhub-substore-data --format '{{.Name}}')" = "$substore_volume"
+          P5_EXISTING=1 node scripts/p5-compose-smoke.js
           if PROXYHUB_PURGE_CONFIRM=NO /tmp/proxyhub uninstall --purge; then
             echo "Purge without exact confirmation unexpectedly succeeded"
             exit 1
           fi
-          /tmp/proxyhub start
-          P5_EXISTING=1 node scripts/p5-compose-smoke.js
+          PROXYHUB_PURGE_CONFIRM=DELETE /tmp/proxyhub uninstall --purge
+          if docker volume inspect proxyhub-data proxyhub-substore-data; then
+            echo "Purged volumes unexpectedly remain"
+            exit 1
+          fi
+          cp .env.example .env
       - name: Scan ProxyHub image
         uses: anchore/scan-action@v7
         with:

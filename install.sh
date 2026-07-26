@@ -77,10 +77,40 @@ case "$(uname -m)" in
 esac
 
 tmp_dir=$(mktemp -d)
+INSTALL_COMPLETE=false
+CLEAN_INSTALL=false
 cleanup() {
+  status=$?
+  trap - EXIT HUP INT TERM
+  if [ "$status" -ne 0 ] && [ "$CLEAN_INSTALL" = true ] &&
+    [ "$INSTALL_COMPLETE" = false ]; then
+    if command -v docker >/dev/null 2>&1 &&
+      [ -f "$DEPLOY_DIR/compose.yaml" ] && [ -f "$ENV_FILE" ]; then
+      docker compose \
+        --project-directory "$DEPLOY_DIR" \
+        --env-file "$ENV_FILE" \
+        -f "$DEPLOY_DIR/compose.yaml" \
+        down --volumes --remove-orphans >/dev/null 2>&1 || true
+    fi
+    if [ -L "$CLI_PATH" ] &&
+      [ "$(readlink "$CLI_PATH")" = "$DEPLOY_DIR/proxyhub" ]; then
+      rm -f "$CLI_PATH"
+    fi
+    rm -f \
+      "$DEPLOY_DIR/compose.yaml" \
+      "$DEPLOY_DIR/.env.example" \
+      "$DEPLOY_DIR/proxyhub" \
+      "$DEPLOY_DIR/VERSION" \
+      "$ENV_FILE"
+    rmdir "$DATA_DIR/backups" "$DATA_DIR/state" "$DATA_DIR" \
+      "$LOG_DIR" "$CONFIG_DIR" "$DEPLOY_DIR" 2>/dev/null || true
+    echo "Clean installation failed; newly created ProxyHub files were removed." >&2
+  fi
   rm -rf "$tmp_dir"
+  exit "$status"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 download() {
   url=$1 output=$2
@@ -265,7 +295,7 @@ command -v openssl >/dev/null 2>&1 || die "openssl is required"
 docker info >/dev/null 2>&1 || die "Docker daemon is not running"
 
 existing_install=false
-if [ -e "$DEPLOY_DIR" ] || [ -e "$ENV_FILE" ] ||
+if [ -e "$DEPLOY_DIR" ] || [ -e "$ENV_FILE" ] || [ -L "$CLI_PATH" ] ||
   docker volume inspect proxyhub-data >/dev/null 2>&1 ||
   docker volume inspect proxyhub-substore-data >/dev/null 2>&1; then
   existing_install=true
@@ -283,6 +313,8 @@ if [ -f "$ENV_FILE" ]; then
 else
   SUBSTORE_IMAGE=xream/sub-store:$SUBSTORE_VERSION
 fi
+
+[ "$existing_install" = true ] || CLEAN_INSTALL=true
 
 case "$PORT" in ''|*[!0-9]*) die "configured port must be an integer" ;; esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] ||
@@ -330,6 +362,7 @@ chmod 600 "$ENV_FILE"
 ln -sf "$DEPLOY_DIR/proxyhub" "$CLI_PATH"
 
 "$CLI_PATH" install
+INSTALL_COMPLETE=true
 
 echo "ProxyHub installation completed."
 echo "URL: http://127.0.0.1:$PORT/"
