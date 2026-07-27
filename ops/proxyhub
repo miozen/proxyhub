@@ -982,8 +982,254 @@ logs_cmd() {
   esac
 }
 
-command=${1:-help}; shift || true
+doctor_cmd() {
+  ensure_env
+  failed=false
+  echo "ProxyHub diagnostics"
+  if command -v docker >/dev/null 2>&1 &&
+    docker info >/dev/null 2>&1; then
+    echo "[OK] Docker daemon is available"
+  else
+    echo "[FAIL] Docker daemon is unavailable"
+    failed=true
+  fi
+  if docker compose version >/dev/null 2>&1 &&
+    dc config --quiet >/dev/null 2>&1; then
+    echo "[OK] Compose configuration is valid"
+  else
+    echo "[FAIL] Compose configuration is invalid"
+    failed=true
+  fi
+  if [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]; then
+    echo "[OK] state directory is available"
+  else
+    echo "[FAIL] state directory is unavailable"
+    failed=true
+  fi
+  if [ -d "$LOCK_DIR" ]; then
+    echo "[WARN] a lifecycle operation lock is present"
+  else
+    echo "[OK] no lifecycle operation lock is present"
+  fi
+  component_health_report proxyhub || failed=true
+  component_health_report sub-store || failed=true
+  [ "$failed" = false ]
+}
+
+print_help() {
+  cat <<'EOF'
+Usage: proxyhub [menu]
+       proxyhub {status|start|stop|restart} [all|proxyhub|sub-store]
+       proxyhub logs [all|proxyhub|sub-store] [--tail=N] [-f]
+       proxyhub check-updates [all|proxyhub|sub-store]
+       proxyhub update <proxyhub|sub-store> [--version X|--image I] [--yes]
+       proxyhub rollback <proxyhub|sub-store>
+       proxyhub backup [all|proxyhub|sub-store] [name]
+       proxyhub restore <backup-path>
+       proxyhub doctor
+       proxyhub uninstall
+EOF
+}
+
+menu_require_tty() {
+  [ -t 0 ] && [ -t 1 ] ||
+    die "menu requires an interactive terminal; run proxyhub help"
+}
+
+menu_read() {
+  menu_prompt=$1
+  printf '%s' "$menu_prompt"
+  IFS= read -r MENU_REPLY || return 1
+}
+
+menu_pause() {
+  menu_read "Press Enter to continue..." || return 1
+}
+
+menu_safe_text() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_./:@-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+menu_command() {
+  printf '\nCommand: proxyhub'
+  for menu_arg in "$@"; do
+    printf ' %s' "$menu_arg"
+  done
+  printf '\n\n'
+  "$SCRIPT" "$@" || {
+    menu_status=$?
+    echo "Command failed with exit code $menu_status."
+    return "$menu_status"
+  }
+}
+
+menu_component_row() {
+  menu_component=$1
+  if [ -n "$(dc ps -q "$menu_component")" ]; then
+    menu_state=running
+  else
+    menu_state=stopped
+  fi
+  menu_image=$(get_env "$(component_env_key "$menu_component")" unknown)
+  printf '%-14s %-10s %-48s %s\n' \
+    "$menu_component" "$menu_state" "$menu_image" "not checked"
+}
+
+component_menu() {
+  menu_component=$1
+  while :; do
+    echo
+    echo "$menu_component management"
+    echo "1. Status"
+    echo "2. Check update"
+    echo "3. Update latest stable"
+    echo "4. Update selected version"
+    echo "5. Rollback last update"
+    echo "6. Start"
+    echo "7. Stop"
+    echo "8. Restart"
+    echo "9. Logs (last 100 lines)"
+    echo "10. Manual component backup"
+    echo "0. Back"
+    menu_read "Select: " || return 0
+    case "$MENU_REPLY" in
+      1) menu_command status "$menu_component"; menu_pause || return 0 ;;
+      2) menu_command check-updates "$menu_component"; menu_pause || return 0 ;;
+      3) menu_command update "$menu_component"; menu_pause || return 0 ;;
+      4)
+        menu_read "Version: " || return 0
+        menu_safe_text "$MENU_REPLY" || {
+          echo "Invalid version; no action was run."
+          continue
+        }
+        menu_version=$MENU_REPLY
+        menu_command update "$menu_component" --version "$menu_version"
+        menu_pause || return 0
+        ;;
+      5) menu_command rollback "$menu_component"; menu_pause || return 0 ;;
+      6) menu_command start "$menu_component"; menu_pause || return 0 ;;
+      7) menu_command stop "$menu_component"; menu_pause || return 0 ;;
+      8) menu_command restart "$menu_component"; menu_pause || return 0 ;;
+      9)
+        menu_command logs "$menu_component" --tail=100
+        menu_pause || return 0
+        ;;
+      10)
+        menu_command backup "$menu_component"
+        menu_pause || return 0
+        ;;
+      0) return 0 ;;
+      *) echo "Invalid selection; no action was run." ;;
+    esac
+  done
+}
+
+backup_menu() {
+  while :; do
+    echo
+    echo "Backup and restore"
+    echo "1. Backup all components"
+    echo "2. Backup ProxyHub"
+    echo "3. Backup Sub-Store"
+    echo "4. Restore a managed backup path"
+    echo "0. Back"
+    menu_read "Select: " || return 0
+    case "$MENU_REPLY" in
+      1) menu_command backup all; menu_pause || return 0 ;;
+      2) menu_command backup proxyhub; menu_pause || return 0 ;;
+      3) menu_command backup sub-store; menu_pause || return 0 ;;
+      4)
+        menu_read "Managed backup path: " || return 0
+        menu_safe_text "$MENU_REPLY" || {
+          echo "Invalid backup path; no action was run."
+          continue
+        }
+        menu_backup_path=$MENU_REPLY
+        menu_read "Run restore? [y/N] " || return 0
+        case "$MENU_REPLY" in
+          y|Y|yes|YES)
+            menu_command restore "$menu_backup_path"
+            menu_pause || return 0
+            ;;
+          *) echo "Restore cancelled." ;;
+        esac
+        ;;
+      0) return 0 ;;
+      *) echo "Invalid selection; no action was run." ;;
+    esac
+  done
+}
+
+logs_menu() {
+  echo
+  echo "Logs"
+  echo "1. All components"
+  echo "2. ProxyHub"
+  echo "3. Sub-Store"
+  echo "0. Back"
+  menu_read "Select: " || return 0
+  case "$MENU_REPLY" in
+    1) menu_command logs --tail=100 ;;
+    2) menu_command logs proxyhub --tail=100 ;;
+    3) menu_command logs sub-store --tail=100 ;;
+    0) return 0 ;;
+    *) echo "Invalid selection; no action was run." ;;
+  esac
+  menu_pause || return 0
+}
+
+management_menu() {
+  # Output is always plain text, so NO_COLOR and non-ANSI terminals need no
+  # alternate rendering path.
+  : "${NO_COLOR:=}"
+  menu_require_tty
+  ensure_env
+  trap 'printf "\n"; exit 0' HUP INT TERM
+  while :; do
+    echo
+    echo "ProxyHub management"
+    echo
+    printf '%-14s %-10s %-48s %s\n' \
+      "Component" "State" "Version / image" "Update"
+    menu_component_row proxyhub
+    menu_component_row sub-store
+    echo
+    echo "1. ProxyHub"
+    echo "2. Sub-Store"
+    echo "3. Check updates"
+    echo "4. Backup and restore"
+    echo "5. Logs"
+    echo "6. Diagnostics"
+    echo "0. Exit"
+    menu_read "Select: " || return 0
+    case "$MENU_REPLY" in
+      1) component_menu proxyhub ;;
+      2) component_menu sub-store ;;
+      3) menu_command check-updates; menu_pause || return 0 ;;
+      4) backup_menu ;;
+      5) logs_menu ;;
+      6) menu_command doctor; menu_pause || return 0 ;;
+      0) return 0 ;;
+      *) echo "Invalid selection; no action was run." ;;
+    esac
+  done
+}
+
+if [ "$#" -eq 0 ]; then
+  if [ -t 0 ] && [ -t 1 ]; then
+    management_menu
+  else
+    print_help
+  fi
+  exit 0
+fi
+
+command=$1; shift
 case "$command" in
+  menu) [ "$#" -eq 0 ] || die "menu accepts no options"; management_menu ;;
   install) acquire_lock install; install_cmd "$@" ;;
   start|stop|restart)
     ensure_env; acquire_lock "$command ${1:-all}"; lifecycle_cmd "$command" "$@"
@@ -995,7 +1241,8 @@ case "$command" in
   update) ensure_env; acquire_lock "update ${1:-}"; update_cmd "$@" ;;
   check-updates) check_updates_cmd "$@" ;;
   rollback) ensure_env; acquire_lock "rollback ${1:-}"; rollback_cmd "$@" ;;
+  doctor) [ "$#" -eq 0 ] || die "doctor accepts no options"; doctor_cmd ;;
   uninstall) acquire_lock uninstall; uninstall_cmd "$@" ;;
-  help|-h|--help) echo "Usage: proxyhub {install|start|stop|restart|status|logs|backup|restore|check-updates|update|rollback|uninstall} [proxyhub|sub-store]" ;;
+  help|-h|--help) print_help ;;
   *) die "unknown command: $command" ;;
 esac
