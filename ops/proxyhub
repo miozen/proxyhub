@@ -540,10 +540,15 @@ merge_environment_template() {
     return 1
   }
   while IFS= read -r template_line; do
+    template_line=$(printf '%s' "$template_line" | sed 's/\r$//')
     case "$template_line" in ''|'#'*) continue ;; esac
     template_key=${template_line%%=*}
     case "$template_key" in
-      ''|*[!A-Z0-9_]*) rm -f "$environment_temp"; return 1 ;;
+      ''|*[!A-Z0-9_]*)
+        echo "invalid key in the candidate environment template" >&2
+        rm -f "$environment_temp"
+        return 1
+        ;;
     esac
     if ! grep -q "^$template_key=" "$environment_temp"; then
       printf '%s\n' "$template_line" >>"$environment_temp" || {
