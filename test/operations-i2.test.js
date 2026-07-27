@@ -118,6 +118,7 @@ test('I2 creates a checksummed component backup without stopping the other servi
   const result = f.run('backup', 'proxyhub', 'unit');
   assert.equal(result.status, 0, result.stderr);
   const backup = path.join(f.root, 'backups', 'components', 'proxyhub', 'unit');
+  assert.equal(result.stdout.trim(), backup);
   assert.match(fs.readFileSync(path.join(backup, 'metadata'), 'utf8'), /type=component/);
   assert.match(fs.readFileSync(path.join(backup, 'metadata'), 'utf8'), /component=proxyhub/);
   assert.ok(fs.existsSync(path.join(backup, 'SHA256SUMS')));
