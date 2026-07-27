@@ -263,6 +263,7 @@ curl -fsS http://127.0.0.1:3000/healthz
 - [交互式生命周期升级设计](INTERACTIVE_LIFECYCLE_UPGRADE_DESIGN.md)
 - [I2 生命周期基础验收证据](I2_ACCEPTANCE_EVIDENCE.md)
 - [I3 半交互安装验收证据](I3_ACCEPTANCE_EVIDENCE.md)
+- [I4 SSH 终端菜单验收证据](I4_ACCEPTANCE_EVIDENCE.md)
 
 正式镜像和安装资产仅由 `v*` 标签触发发布。`dev` 分支的镜像工作流只
 允许手动触发。
