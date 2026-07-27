@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
@@ -25,7 +26,11 @@ const buildCommand = new URL(
   import.meta.url
 );
 
-function managedUpdateFixture(context, { failInstallOnce = false, failHealthOnce = false } = {}) {
+function managedUpdateFixture(context, {
+  failInstallOnce = false,
+  failHealthOnce = false,
+  incompleteArchive = false
+} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-i5-update-'));
   const deploy = path.join(root, 'deploy');
   const bin = path.join(root, 'bin');
@@ -42,6 +47,28 @@ function managedUpdateFixture(context, { failInstallOnce = false, failHealthOnce
     encoding: 'utf8'
   });
   assert.equal(build.status, 0, build.stderr);
+  if (incompleteArchive) {
+    const archive = path.join(release, 'proxyhub-deploy-0.2.0.tar.gz');
+    const incomplete = path.join(root, 'incomplete');
+    fs.mkdirSync(incomplete);
+    let archiveResult = spawnSync(
+      'tar', ['-xzf', archive, '-C', incomplete], { encoding: 'utf8' }
+    );
+    assert.equal(archiveResult.status, 0, archiveResult.stderr);
+    fs.rmSync(path.join(incomplete, 'compatibility.json'));
+    archiveResult = spawnSync('tar', [
+      '-czf', archive, '-C', incomplete,
+      '.env.example', 'VERSION', 'compose.yaml', 'proxyhub'
+    ], { encoding: 'utf8' });
+    assert.equal(archiveResult.status, 0, archiveResult.stderr);
+    const digest = createHash('sha256')
+      .update(fs.readFileSync(archive))
+      .digest('hex');
+    fs.writeFileSync(
+      path.join(release, 'SHA256SUMS'),
+      `${digest}  proxyhub-deploy-0.2.0.tar.gz\n`
+    );
+  }
   fs.writeFileSync(path.join(deploy, 'compose.yaml'), 'services: {}\n');
   fs.writeFileSync(path.join(deploy, '.env.example'), 'PORT=3000\n', { mode: 0o600 });
   fs.writeFileSync(path.join(deploy, 'VERSION'), '0.1.5\n');
@@ -381,6 +408,27 @@ test('I5 asset revision update switches assets and recreates only ProxyHub', {
   assert.match(calls, /up -d --no-deps proxyhub/);
   assert.doesNotMatch(calls, /up -d --no-deps sub-store/);
   assert.doesNotMatch(calls, /stop sub-store/);
+});
+
+test('I5 incomplete release records a completed asset-stage failure', {
+  skip: process.platform === 'win32'
+}, (context) => {
+  const fixture = managedUpdateFixture(context, { incompleteArchive: true });
+  const result = fixture.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /deployment archive contains unexpected files/);
+  const operations = fs.readdirSync(
+    path.join(fixture.data, 'state', 'operations')
+  );
+  const operation = fs.readFileSync(
+    path.join(fixture.data, 'state', 'operations', operations.at(-1)),
+    'utf8'
+  );
+  assert.match(operation, /phase=asset_stage/);
+  assert.match(operation, /result=failed/);
+  assert.match(operation, /failed_phase=asset_stage/);
+  assert.match(operation, /backup=none/);
+  assert.doesNotMatch(fs.readFileSync(fixture.dockerLog, 'utf8'), /stop proxyhub/);
 });
 
 test('I5 injected asset-apply failure restores image, environment and assets', {
