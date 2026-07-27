@@ -1257,6 +1257,7 @@ rollback_cmd() {
   operation_begin "$component" rollback "$current" unknown "$target"
   operation_phase restore
   if component_restore_cmd "$component" "$target"; then
+    OPERATION_TARGET=$(get_env "$(component_env_key "$component")" unknown)
     operation_finish success none
   else
     OPERATION_FAILED_PHASE=restore
