@@ -504,6 +504,9 @@ Acceptance:
 
 ### I3 - Semi-interactive installation
 
+Status: CODE_COMPLETE on `dev`; automated evidence is recorded in
+`I3_ACCEPTANCE_EVIDENCE.md`. Real-host acceptance remains assigned to I6.
+
 - I3.1 formalize TTY/non-TTY mode selection;
 - I3.2 add read-only preflight reporting;
 - I3.3 use `PORT_EXPLICIT` to ask only when necessary;
