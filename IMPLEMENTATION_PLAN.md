@@ -9,6 +9,10 @@ Post-release lifecycle amendment:
 
 - `STABILITY_LIFECYCLE_DESIGN.md` supersedes P6.4, P6.9-P6.13 and any older
   install/uninstall retention wording;
+- `INTERACTIVE_LIFECYCLE_UPGRADE_DESIGN.md` defines post-v0.1 I1-I6 work for
+  semi-interactive installation, the SSH terminal menu, lifecycle locking,
+  component backup interfaces and ProxyHub deployment-asset updates; it does
+  not renumber or retroactively change accepted P0-P9 history;
 - install is fresh-only unless explicitly invoked with destructive
   `--replace`;
 - update is the only data-preserving version-change path;
