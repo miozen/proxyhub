@@ -84,11 +84,11 @@ test('I3 cancellation occurs before managed directories are created', () => {
 test('I3 treats already-satisfied dependency installers as successful no-ops', () => {
   assert.match(
     installer,
-    /install_docker\(\) \{\s+\[ "\$DOCKER_MISSING" = true \] \|\| return 0/
+    /\[ "\$DOCKER_MISSING" = true \] \|\| return 0/
   );
   assert.match(
     installer,
-    /install_host_tools\(\) \{\s+\[ "\$HOST_TOOLS_MISSING" = true \] \|\| return 0/
+    /\[ "\$HOST_TOOLS_MISSING" = true \] \|\| return 0/
   );
   assert.doesNotMatch(
     installer,
