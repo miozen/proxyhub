@@ -19,6 +19,155 @@ const imageWorkflow = fs.readFileSync(
   new URL('../.github/workflows/image.yml', import.meta.url),
   'utf8'
 );
+const command = new URL('../ops/proxyhub', import.meta.url);
+const buildCommand = new URL(
+  '../scripts/build-deployment-assets.sh',
+  import.meta.url
+);
+
+function managedUpdateFixture(context, { failInstallOnce = false, failHealthOnce = false } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-i5-update-'));
+  const deploy = path.join(root, 'deploy');
+  const bin = path.join(root, 'bin');
+  const data = path.join(root, 'data');
+  const release = path.join(root, 'release');
+  const envFile = path.join(root, 'proxyhub.env');
+  const dockerLog = path.join(root, 'docker.log');
+  fs.mkdirSync(deploy, { recursive: true });
+  fs.mkdirSync(bin);
+  fs.mkdirSync(release);
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const build = spawnSync('sh', [buildCommand.pathname, '0.2.0', release], {
+    encoding: 'utf8'
+  });
+  assert.equal(build.status, 0, build.stderr);
+  fs.writeFileSync(path.join(deploy, 'compose.yaml'), 'services: {}\n');
+  fs.writeFileSync(path.join(deploy, '.env.example'), 'PORT=3000\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(deploy, 'VERSION'), '0.1.5\n');
+  fs.writeFileSync(path.join(deploy, 'compatibility.json'), JSON.stringify({
+    schema: 1,
+    proxyhub_version: '0.1.5',
+    manager_min_version: '0.1.5',
+    compose_revision: 1,
+    environment_revision: 1,
+    substore_min_version: null,
+    substore_max_version_exclusive: null
+  }, null, 2));
+  const cli = path.join(deploy, 'proxyhub');
+  fs.copyFileSync(command, cli);
+  fs.chmodSync(cli, 0o755);
+  fs.writeFileSync(envFile, [
+    'PORT=3000',
+    'PROXYHUB_IMAGE=ghcr.io/miozen/proxyhub@sha256:old',
+    'SUBSTORE_IMAGE=xream/sub-store@sha256:unchanged',
+    'SESSION_SECRET=keep-this-secret',
+    ''
+  ].join('\n'), { mode: 0o600 });
+
+  fs.writeFileSync(path.join(bin, 'curl'), `#!/bin/sh
+url=
+output=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) output=$2; shift 2 ;;
+    http*) url=$1; shift ;;
+    *) shift ;;
+  esac
+done
+case "$url" in
+  */SHA256SUMS) cp "$RELEASE_DIR/SHA256SUMS" "$output" ;;
+  */proxyhub-deploy-0.2.0.tar.gz)
+    cp "$RELEASE_DIR/proxyhub-deploy-0.2.0.tar.gz" "$output"
+    ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'wget'), `#!/bin/sh
+if [ "$FAIL_HEALTH_ONCE" = 1 ]; then
+  count=0
+  [ ! -f "$HEALTH_COUNT" ] || count=$(cat "$HEALTH_COUNT")
+  count=$((count + 1))
+  echo "$count" >"$HEALTH_COUNT"
+  [ "$count" -ne 2 ] || exit 1
+fi
+printf '%s\\n' '{"status":"ok","checks":{"database":"ok","substore":{"reachable":true}}}'
+`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'docker'), `#!/bin/sh
+printf '%s\\n' "$*" >>"$DOCKER_LOG"
+if [ "$1" = image ] && [ "$2" = inspect ]; then
+  case "$*" in
+    *RepoDigests*) echo ghcr.io/miozen/proxyhub@sha256:new ;;
+    *'{{.Os}}'*) echo linux ;;
+    *'{{.Architecture}}'*) echo "$HOST_IMAGE_ARCH" ;;
+    *'{{.Id}}'*) echo new-image-id ;;
+  esac
+  exit 0
+fi
+if [ "$1" = inspect ]; then echo old-image-id; exit 0; fi
+if [ "$1" = compose ]; then
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in --project-directory|--env-file|-f) shift 2 ;; *) break ;; esac
+  done
+  if [ "$1" = ps ] && [ "$2" = -q ]; then
+    case "\${3:-}" in
+      proxyhub) echo proxyhub-id ;;
+      sub-store) echo substore-id ;;
+    esac
+  fi
+  exit 0
+fi
+if [ "$1" = run ]; then
+  backup_dir=
+  for argument in "$@"; do
+    case "$argument" in *:/backup) backup_dir=\${argument%:/backup} ;; esac
+  done
+  case "$*" in
+    *proxyhub-data.tgz*) [ -z "$backup_dir" ] || : >"$backup_dir/proxyhub-data.tgz" ;;
+  esac
+  exit 0
+fi
+exit 0
+`, { mode: 0o755 });
+  if (failInstallOnce) {
+    fs.writeFileSync(path.join(bin, 'install'), `#!/bin/sh
+if [ ! -f "$INSTALL_FAILED_MARKER" ]; then
+  : >"$INSTALL_FAILED_MARKER"
+  exit 1
+fi
+exec /usr/bin/install "$@"
+`, { mode: 0o755 });
+  }
+
+  return {
+    deploy,
+    data,
+    envFile,
+    dockerLog,
+    run() {
+      return spawnSync(cli, ['update', 'proxyhub', '--version', '0.2.0', '--yes'], {
+        encoding: 'utf8',
+        timeout: 10000,
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          RELEASE_DIR: release,
+          DOCKER_LOG: dockerLog,
+          HOST_IMAGE_ARCH: process.arch === 'arm64' ? 'arm64' : 'amd64',
+          FAIL_HEALTH_ONCE: failHealthOnce ? '1' : '0',
+          HEALTH_COUNT: path.join(root, 'health-count'),
+          INSTALL_FAILED_MARKER: path.join(root, 'install-failed'),
+          PROXYHUB_ENV_FILE: envFile,
+          PROXYHUB_DATA_DIR: data,
+          PROXYHUB_LOG_DIR: path.join(root, 'logs'),
+          PROXYHUB_LOCK_DIR: path.join(data, 'state', 'lock'),
+          PROXYHUB_HEALTH_ATTEMPTS: '1'
+        }
+      });
+    }
+  };
+}
 
 test('I5 packages a checksummed compatibility manifest in every deployment archive', () => {
   for (const field of [
@@ -215,4 +364,55 @@ fi
   const calls = fs.readFileSync(dockerLog, 'utf8');
   assert.match(calls, /stop proxyhub/);
   assert.doesNotMatch(calls, /stop sub-store/);
+});
+
+test('I5 asset revision update switches assets and recreates only ProxyHub', {
+  skip: process.platform === 'win32'
+}, (context) => {
+  const fixture = managedUpdateFixture(context);
+  const result = fixture.run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.readFileSync(path.join(fixture.deploy, 'VERSION'), 'utf8').trim(), '0.2.0');
+  const environment = fs.readFileSync(fixture.envFile, 'utf8');
+  assert.match(environment, /PROXYHUB_IMAGE=ghcr\.io\/miozen\/proxyhub@sha256:new/);
+  assert.match(environment, /SUBSTORE_IMAGE=xream\/sub-store@sha256:unchanged/);
+  assert.match(environment, /SESSION_SECRET=keep-this-secret/);
+  const calls = fs.readFileSync(fixture.dockerLog, 'utf8');
+  assert.match(calls, /up -d --no-deps proxyhub/);
+  assert.doesNotMatch(calls, /up -d --no-deps sub-store/);
+  assert.doesNotMatch(calls, /stop sub-store/);
+});
+
+test('I5 injected asset-apply failure restores image, environment and assets', {
+  skip: process.platform === 'win32'
+}, (context) => {
+  const fixture = managedUpdateFixture(context, { failInstallOnce: true });
+  const result = fixture.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /asset switch failed; rolling back/);
+  assert.equal(fs.readFileSync(path.join(fixture.deploy, 'VERSION'), 'utf8').trim(), '0.1.5');
+  const environment = fs.readFileSync(fixture.envFile, 'utf8');
+  assert.match(environment, /PROXYHUB_IMAGE=ghcr\.io\/miozen\/proxyhub@sha256:old/);
+  assert.match(environment, /SUBSTORE_IMAGE=xream\/sub-store@sha256:unchanged/);
+  const operations = fs.readdirSync(path.join(fixture.data, 'state', 'operations'));
+  const operation = fs.readFileSync(
+    path.join(fixture.data, 'state', 'operations', operations.at(-1)),
+    'utf8'
+  );
+  assert.match(operation, /failed_phase=asset_apply/);
+  assert.match(operation, /rollback=rolled_back/);
+  assert.doesNotMatch(fs.readFileSync(fixture.dockerLog, 'utf8'), /stop sub-store/);
+});
+
+test('I5 injected ProxyHub health failure restores the complete rollback point', {
+  skip: process.platform === 'win32'
+}, (context) => {
+  const fixture = managedUpdateFixture(context, { failHealthOnce: true });
+  const result = fixture.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /update failed; rolling back/);
+  assert.equal(fs.readFileSync(path.join(fixture.deploy, 'VERSION'), 'utf8').trim(), '0.1.5');
+  const environment = fs.readFileSync(fixture.envFile, 'utf8');
+  assert.match(environment, /PROXYHUB_IMAGE=ghcr\.io\/miozen\/proxyhub@sha256:old/);
+  assert.match(environment, /SUBSTORE_IMAGE=xream\/sub-store@sha256:unchanged/);
 });
