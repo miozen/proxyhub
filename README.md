@@ -4,7 +4,7 @@ ProxyHub 是部署在 VPS 或内网虚拟机上的 sing-box 配置与 Sub-Store
 统一管理平台。ProxyHub 负责用户、模板和 sing-box 配置组装；节点订阅、
 转换、同步及其备份恢复继续使用 Sub-Store 原生能力。
 
-当前稳定版本：`v0.1.5`
+当前稳定版本：`v0.1.6`
 
 ## 功能
 
