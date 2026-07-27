@@ -12,6 +12,9 @@ SUBSTORE_VERSION_EXPLICIT=false
 PORT_EXPLICIT=false
 ASSUME_YES=false
 REPLACE=false
+INTERACTIVE=false
+DOCKER_MISSING=false
+HOST_TOOLS_MISSING=false
 
 DEPLOY_DIR=/opt/proxyhub
 CONFIG_DIR=/etc/proxyhub
@@ -19,10 +22,47 @@ ENV_FILE=$CONFIG_DIR/proxyhub.env
 DATA_DIR=/var/lib/proxyhub
 LOG_DIR=/var/log/proxyhub
 CLI_PATH=/usr/local/bin/proxyhub
+INSTALLATION_STATE=$DATA_DIR/state/installation
 
 die() {
   echo "proxyhub installer: $*" >&2
   exit 1
+}
+
+if [ -t 0 ] && [ -t 1 ]; then
+  INTERACTIVE=true
+fi
+
+marker() {
+  level=$1
+  shift
+  printf '[%s] %s\n' "$level" "$*"
+}
+
+read_answer() {
+  prompt=$1
+  printf '%s' "$prompt"
+  IFS= read -r REPLY || return 1
+}
+
+validate_port() {
+  candidate=$1
+  case "$candidate" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$candidate" -ge 1 ] && [ "$candidate" -le 65535 ]
+}
+
+ask_port() {
+  [ "$PORT_EXPLICIT" = false ] || return 0
+  [ "$INTERACTIVE" = true ] || return 0
+  while :; do
+    read_answer "ProxyHub host port [3000]: " || die "installation cancelled"
+    candidate=${REPLY:-3000}
+    if validate_port "$candidate"; then
+      PORT=$candidate
+      return
+    fi
+    marker WARN "enter a port between 1 and 65535"
+  done
 }
 
 valid_version() {
@@ -134,9 +174,18 @@ download() {
 
 confirm() {
   [ "$ASSUME_YES" = true ] && return 0
-  printf '%s [y/N] ' "$1"
-  read -r answer
-  case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+  [ "$INTERACTIVE" = true ] ||
+    die "confirmation required in non-interactive mode; rerun with --yes"
+  read_answer "$1 [y/N] " || return 1
+  case "$REPLY" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
+confirm_clean_install() {
+  [ "$ASSUME_YES" = true ] && return 0
+  [ "$INTERACTIVE" = true ] ||
+    die "clean installation confirmation required; rerun with --yes"
+  read_answer "Continue with this clean installation? [Y/n] " || return 1
+  case "$REPLY" in ''|y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
 latest_release() {
@@ -210,11 +259,16 @@ prepare_dev_assets() {
   printf '%s\n' "dev-$REF" >"$tmp_dir/deployment/VERSION"
 }
 
-install_docker() {
+detect_docker() {
   if command -v docker >/dev/null 2>&1 &&
     docker compose version >/dev/null 2>&1; then
     return
   fi
+  DOCKER_MISSING=true
+}
+
+install_docker() {
+  [ "$DOCKER_MISSING" = true ] || return
   confirm "Docker with Compose is missing. Install it now?" ||
     die "Docker Compose v2 is required"
   case "$HOST_OS" in
@@ -239,7 +293,7 @@ install_docker() {
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 installation failed"
 }
 
-ensure_host_tools() {
+detect_host_tools() {
   missing=false
   for command_name in awk diff find install openssl sha256sum tar; do
     command -v "$command_name" >/dev/null 2>&1 || missing=true
@@ -249,6 +303,11 @@ ensure_host_tools() {
     missing=true
   fi
   [ "$missing" = false ] && return
+  HOST_TOOLS_MISSING=true
+}
+
+install_host_tools() {
+  [ "$HOST_TOOLS_MISSING" = true ] || return
   confirm "Required host utilities are missing. Install them now?" ||
     die "required host utilities are missing"
   case "$HOST_OS" in
@@ -281,6 +340,79 @@ port_is_listening() {
   '
 }
 
+resolve_available_port() {
+  while port_is_listening; do
+    if [ "$INTERACTIVE" != true ]; then
+      die "port $PORT is already in use; rerun with --port <available-port> --yes"
+    fi
+    marker WARN "port $PORT is already in use"
+    read_answer "Choose another host port: " || die "installation cancelled"
+    if validate_port "$REPLY"; then
+      PORT=$REPLY
+      PORT_EXPLICIT=true
+    else
+      marker WARN "enter a port between 1 and 65535"
+    fi
+  done
+}
+
+show_preflight() {
+  marker OK "supported host: $HOST_OS/$HOST_ARCH"
+  if [ "$HOST_TOOLS_MISSING" = true ]; then
+    marker WARN "required host utilities must be installed"
+  else
+    marker OK "required host utilities are available"
+  fi
+  if [ "$DOCKER_MISSING" = true ]; then
+    marker WARN "Docker with Compose must be installed"
+  else
+    marker OK "Docker with Compose is available"
+  fi
+}
+
+show_install_summary() {
+  echo
+  echo "Resolved installation"
+  echo "  Host: $HOST_OS/$HOST_ARCH"
+  echo "  Public URL: http://127.0.0.1:$PORT/"
+  echo "  ProxyHub release: ${RELEASE_TAG:-dev-$REF}"
+  echo "  ProxyHub image: $PROXYHUB_IMAGE"
+  echo "  Sub-Store selector: ${SUBSTORE_VERSION:-latest}"
+  echo "  Sub-Store image: $SUBSTORE_IMAGE"
+  echo "  Containers: proxyhub-proxyhub-1, proxyhub-sub-store-1"
+  echo "  Network: proxyhub_internal"
+  echo "  Volumes: proxyhub-data, proxyhub-substore-data"
+  echo "  Configuration: $CONFIG_DIR"
+  echo "  Data and state: $DATA_DIR"
+  echo "  Backups: $DATA_DIR/backups"
+  echo "  Logs: $LOG_DIR"
+  if [ "$HOST_TOOLS_MISSING" = true ] || [ "$DOCKER_MISSING" = true ]; then
+    echo "  Host packages: installation approved during preflight"
+  else
+    echo "  Host packages: no changes required"
+  fi
+  echo
+}
+
+write_installation_state() {
+  state_dir=$(dirname "$INSTALLATION_STATE")
+  mkdir -p "$state_dir"
+  state_temp=$INSTALLATION_STATE.tmp.$$
+  umask 077
+  {
+    echo "schema=1"
+    echo "result=installed"
+    echo "installed_at=$(date -u +%Y%m%dT%H%M%SZ)"
+    echo "host_os=$HOST_OS"
+    echo "host_arch=$HOST_ARCH"
+    echo "port=$PORT"
+    echo "proxyhub_image=$PROXYHUB_IMAGE"
+    echo "substore_image=$SUBSTORE_IMAGE"
+  } >"$state_temp"
+  chmod 600 "$state_temp"
+  mv "$state_temp" "$INSTALLATION_STATE"
+}
+
 set_env() {
   key=$1 value=$2 file=$3 temp=$3.tmp
   awk -v key="$key" -v value="$value" '
@@ -309,6 +441,22 @@ resolve_substore_image() {
   image_arch=$(docker image inspect "$candidate" --format '{{.Architecture}}')
   [ "$image_os" = linux ] && [ "$image_arch" = "$HOST_ARCH" ] ||
     die "Sub-Store image does not support linux/$HOST_ARCH"
+  printf '%s\n' "$resolved"
+}
+
+resolve_proxyhub_image() {
+  candidate=$PROXYHUB_IMAGE
+  docker pull "$candidate" >&2
+  resolved=$(docker image inspect "$candidate" \
+    --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+    sed -n '\|^ghcr.io/miozen/proxyhub@sha256:|p' |
+    head -1)
+  [ -n "$resolved" ] ||
+    die "could not resolve immutable ProxyHub digest"
+  image_os=$(docker image inspect "$candidate" --format '{{.Os}}')
+  image_arch=$(docker image inspect "$candidate" --format '{{.Architecture}}')
+  [ "$image_os" = linux ] && [ "$image_arch" = "$HOST_ARCH" ] ||
+    die "ProxyHub image does not support linux/$HOST_ARCH"
   printf '%s\n' "$resolved"
 }
 
@@ -373,20 +521,31 @@ remove_managed_state() {
   rm -rf "$DEPLOY_DIR" "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
 }
 
-ensure_host_tools
+detect_host_tools
+detect_docker
+show_preflight
+ask_port
+install_host_tools
+install_docker
 
 if [ "$CHANNEL" = stable ]; then
   prepare_stable_assets
 else
   prepare_dev_assets
 fi
+marker OK "deployment assets resolved and verified"
 
-install_docker
 command -v openssl >/dev/null 2>&1 || die "openssl is required"
 docker info >/dev/null 2>&1 || die "Docker daemon is not running"
+marker OK "Docker daemon is running"
 
 existing_install=false
 managed_state_exists && existing_install=true
+if [ "$existing_install" = true ]; then
+  marker WARN "existing managed state detected"
+else
+  marker OK "no existing managed state detected"
+fi
 
 case "$PORT" in ''|*[!0-9]*) die "configured port must be an integer" ;; esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] ||
@@ -394,25 +553,35 @@ case "$PORT" in ''|*[!0-9]*) die "configured port must be an integer" ;; esac
 
 available_kb=$(df -Pk / | awk 'NR == 2 { print $4 }')
 [ "${available_kb:-0}" -ge 524288 ] || die "at least 512 MiB of free disk space is required"
+marker OK "at least 512 MiB of disk space is available"
 
 echo "Host: $HOST_OS/$HOST_ARCH"
 echo "ProxyHub image: $PROXYHUB_IMAGE"
 
-docker pull "$PROXYHUB_IMAGE"
+PROXYHUB_IMAGE=$(resolve_proxyhub_image)
+marker OK "ProxyHub image resolved for linux/$HOST_ARCH"
 SUBSTORE_IMAGE=$(resolve_substore_image)
+marker OK "Sub-Store image resolved for linux/$HOST_ARCH"
 echo "Sub-Store image: $SUBSTORE_IMAGE"
 
 if [ "$existing_install" = true ]; then
   [ "$REPLACE" = true ] ||
     die "ProxyHub is already installed; use update or rerun with --replace"
   validate_managed_targets
-  confirm_replacement
-  remove_managed_state
 elif [ "$REPLACE" = true ]; then
   die "--replace requires an existing ProxyHub installation"
 fi
 
-port_is_listening && die "port $PORT is already in use"
+[ "$existing_install" = true ] || resolve_available_port
+[ "$existing_install" = true ] ||
+  marker OK "host port $PORT is available"
+show_install_summary
+if [ "$existing_install" = true ]; then
+  confirm_replacement
+  remove_managed_state
+else
+  confirm_clean_install || die "installation cancelled"
+fi
 CLEAN_INSTALL=true
 
 mkdir -p "$DEPLOY_DIR" "$CONFIG_DIR" "$DATA_DIR/backups" "$DATA_DIR/state" "$LOG_DIR"
@@ -431,8 +600,10 @@ chmod 600 "$ENV_FILE"
 ln -sf "$DEPLOY_DIR/proxyhub" "$CLI_PATH"
 
 "$CLI_PATH" install
+write_installation_state
 INSTALL_COMPLETE=true
 
 echo "ProxyHub installation completed."
 echo "URL: http://127.0.0.1:$PORT/"
 echo "CLI: proxyhub status"
+
