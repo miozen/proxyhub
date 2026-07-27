@@ -223,6 +223,7 @@ curl -fsS http://127.0.0.1:3000/healthz
 - [真机验收](HOST_ACCEPTANCE.md)
 - [安全说明](SECURITY.md)
 - [稳定生命周期设计](STABILITY_LIFECYCLE_DESIGN.md)
+- [交互式生命周期升级设计](INTERACTIVE_LIFECYCLE_UPGRADE_DESIGN.md)
 
 正式镜像和安装资产仅由 `v*` 标签触发发布。`dev` 分支的镜像工作流只
 允许手动触发。
