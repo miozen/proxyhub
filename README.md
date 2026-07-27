@@ -106,6 +106,20 @@ Docker 数据卷，再创建全新实例；它不是升级，也没有回滚保�
 
 ## 日常维护
 
+SSH 登录宿主机后直接运行：
+
+```sh
+proxyhub
+# 或
+proxyhub menu
+```
+
+TTY 中会打开行式管理菜单；裸命令在非 TTY 中只打印帮助，绝不等待输入。
+菜单打开时不会联网检查更新，只有选择“检查更新”后才访问上游。菜单中的
+变更项会先显示等价的非交互命令，再调用同一 CLI 命令路由；它不会启动
+额外的 SSH 服务、管理容器或挂载 Docker Socket。`NO_COLOR` 和非 ANSI
+终端使用相同的纯文本输出，EOF 或 Ctrl+C 会安全退出。
+
 ```sh
 # 状态
 proxyhub status
@@ -128,6 +142,9 @@ proxyhub logs sub-store -f
 proxyhub check-updates
 proxyhub check-updates proxyhub
 proxyhub check-updates sub-store
+
+# 只读诊断
+proxyhub doctor
 ```
 
 两个容器日志均由 Docker 限制为每份 `5MB`、最多 `3` 份。配置生成记录
