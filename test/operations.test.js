@@ -102,32 +102,44 @@ test('I2 separates component self-health from dependency health', () => {
 test('O1 publishes and verifies amd64 and arm64 image manifests', () => {
   assert.match(imageWorkflow, /docker\/setup-qemu-action@v3/);
   assert.match(imageWorkflow, /platforms:\s*linux\/amd64,linux\/arm64/);
-  assert.match(imageWorkflow, /image=ghcr\.io\/miozen\/proxyhub:dev/);
-  assert.match(imageWorkflow, /image="ghcr\.io\/miozen\/proxyhub:\$GITHUB_REF_NAME"/);
+  assert.match(
+    imageWorkflow,
+    /image="ghcr\.io\/miozen\/proxyhub:\$\{\{ needs\.prepare\.outputs\.tag \}\}"/
+  );
   assert.match(imageWorkflow, /imagetools inspect "\$image"/);
   assert.match(imageWorkflow, /imagetools inspect xream\/sub-store:2\.36\.21/);
   assert.match(imageWorkflow, /grep -q 'linux\/amd64'/);
   assert.match(imageWorkflow, /grep -q 'linux\/arm64'/);
 });
 
-test('S3 publishes dev images manually and reserves automatic builds for release tags', () => {
+test('S3 publishes dev images manually and unreleased master versions once', () => {
   assert.match(imageWorkflow, /workflow_dispatch:/);
+  assert.match(imageWorkflow, /branches:\s*\[master\]/);
   assert.match(imageWorkflow, /tags:\s*\['v\*'\]/);
   assert.doesNotMatch(imageWorkflow, /branches:\s*\[dev\]/);
-  assert.match(imageWorkflow, /github\.ref == 'refs\/heads\/dev'/);
+  assert.match(imageWorkflow, /require\('\.\/package\.json'\)\.version/);
+  assert.match(imageWorkflow, /gh release view "\$tag"/);
+  assert.match(imageWorkflow, /publish=false/);
   assert.match(imageWorkflow, /type=raw,value=dev,enable=/);
-  assert.match(imageWorkflow, /type=ref,event=tag,enable=/);
+  assert.match(
+    imageWorkflow,
+    /type=raw,value=\$\{\{ needs\.prepare\.outputs\.tag \}\},enable=/
+  );
   assert.match(imageWorkflow, /type=raw,value=latest,enable=/);
 });
 
-test('S4 publishes checksummed stable assets only after the tagged image succeeds', () => {
+test('S4 publishes checksummed stable assets only after the image succeeds', () => {
   assert.match(imageWorkflow, /release-assets:/);
-  assert.match(imageWorkflow, /needs:\s*publish/);
-  assert.match(imageWorkflow, /version="\$\{GITHUB_REF_NAME#v\}"/);
+  assert.match(imageWorkflow, /needs:\s*\[prepare, publish\]/);
+  assert.match(
+    imageWorkflow,
+    /version="\$\{\{ needs\.prepare\.outputs\.version \}\}"/
+  );
   assert.match(imageWorkflow, /scripts\/build-deployment-assets\.sh "\$version" dist/);
   assert.match(imageWorkflow, /sha256sum -c SHA256SUMS/);
   assert.match(imageWorkflow, /proxyhub-deploy-\$version\.tar\.gz/);
-  assert.match(imageWorkflow, /gh release create "\$GITHUB_REF_NAME"/);
+  assert.match(imageWorkflow, /gh release create "\$tag"/);
+  assert.match(imageWorkflow, /--target "\$GITHUB_SHA"/);
   assert.match(imageWorkflow, /dist\/install\.sh/);
   assert.match(imageWorkflow, /dist\/SHA256SUMS/);
   assert.match(imageWorkflow, /contents:\s*write/);
