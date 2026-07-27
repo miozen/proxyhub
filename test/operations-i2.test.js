@@ -145,3 +145,37 @@ test('I2 refuses a component restore after checksum tampering', {
   assert.match(result.stderr, /backup checksum validation failed/);
   assert.doesNotMatch(fs.readFileSync(f.log, 'utf8'), /stop sub-store/);
 });
+
+test('I2 successful rollback records the restored target image', {
+  skip: process.platform === 'win32'
+}, (context) => {
+  const f = fixture(context);
+  let result = f.run('backup', 'sub-store', 'rollback-target');
+  assert.equal(result.status, 0, result.stderr);
+  const backup = path.join(
+    f.root, 'backups', 'components', 'sub-store', 'rollback-target'
+  );
+  fs.writeFileSync(
+    path.join(f.state, 'sub-store-last-backup'),
+    `${backup}\n`
+  );
+  fs.writeFileSync(path.join(f.root, '.env'), [
+    'PORT=3000',
+    'PROXYHUB_IMAGE=ghcr.io/miozen/proxyhub@sha256:abc',
+    'SUBSTORE_IMAGE=xream/sub-store@sha256:new'
+  ].join('\n'));
+
+  result = f.run('rollback', 'sub-store');
+  assert.equal(result.status, 0, result.stderr);
+  const operationName = fs.readdirSync(path.join(f.state, 'operations'))
+    .filter((name) => name.endsWith('-sub-store-rollback'))
+    .at(-1);
+  const operation = fs.readFileSync(
+    path.join(f.state, 'operations', operationName),
+    'utf8'
+  );
+  assert.match(
+    operation,
+    /target_image=xream\/sub-store@sha256:def/
+  );
+});
