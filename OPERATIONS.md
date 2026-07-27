@@ -1,5 +1,22 @@
 # 运维与恢复
 
+## SSH 终端菜单
+
+```sh
+proxyhub
+proxyhub menu
+```
+
+只有 stdin 和 stdout 都是 TTY 时才打开菜单；非 TTY 裸命令打印帮助，
+显式 `menu` 则快速失败。菜单包含 ProxyHub、Sub-Store、更新检查、备份
+恢复、日志和 `doctor` 诊断入口。打开主页不会执行远程更新检查。
+
+菜单的变更动作先显示 `proxyhub ...` 等价命令，再以子进程调用同一公开
+CLI 路由，因此继续使用相同的操作锁、备份、健康检查和失败返回码。无效
+输入、EOF 和 Ctrl+C 不执行变更。输出始终为纯文本，兼容 `NO_COLOR`、
+窄终端和非 ANSI SSH 会话；菜单不显示密钥、Token、订阅 URL 或完整环境
+文件。
+
 ## 组件控制
 
 ```sh
