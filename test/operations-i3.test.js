@@ -81,3 +81,17 @@ test('I3 cancellation occurs before managed directories are created', () => {
   assert.ok(firstManagedWrite > confirmation);
 });
 
+test('I3 treats already-satisfied dependency installers as successful no-ops', () => {
+  assert.match(
+    installer,
+    /\[ "\$DOCKER_MISSING" = true \] \|\| return 0/
+  );
+  assert.match(
+    installer,
+    /\[ "\$HOST_TOOLS_MISSING" = true \] \|\| return 0/
+  );
+  assert.doesNotMatch(
+    installer,
+    /\[ "\$(?:DOCKER_MISSING|HOST_TOOLS_MISSING)" = true \] \|\| return(?:\r?\n)/
+  );
+});
