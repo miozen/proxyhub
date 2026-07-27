@@ -484,6 +484,9 @@ Acceptance:
 
 ### I2 - Lifecycle foundation
 
+Status: CODE_COMPLETE on `dev`; automated evidence is recorded in
+`I2_ACCEPTANCE_EVIDENCE.md`. Real-host acceptance remains assigned to I6.
+
 - I2.1 add the allow-listed operation lock;
 - I2.2 add atomic operation/component state;
 - I2.3 expose `all|proxyhub|sub-store` backup scopes;
