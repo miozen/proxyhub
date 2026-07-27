@@ -298,7 +298,7 @@ detect_docker() {
 }
 
 install_docker() {
-  [ "$DOCKER_MISSING" = true ] || return
+  [ "$DOCKER_MISSING" = true ] || return 0
   confirm "Docker with Compose is missing. Install it now?" ||
     die "Docker Compose v2 is required"
   case "$HOST_OS" in
@@ -337,7 +337,7 @@ detect_host_tools() {
 }
 
 install_host_tools() {
-  [ "$HOST_TOOLS_MISSING" = true ] || return
+  [ "$HOST_TOOLS_MISSING" = true ] || return 0
   confirm "Required host utilities are missing. Install them now?" ||
     die "required host utilities are missing"
   case "$HOST_OS" in
