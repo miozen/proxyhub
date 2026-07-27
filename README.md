@@ -158,13 +158,23 @@ digest 与当前相同会直接成功退出，不重启容器。每个组件自�
 proxyhub backup
 proxyhub backup before-change
 
+# 仅备份一个组件
+proxyhub backup proxyhub before-proxyhub-change
+proxyhub backup sub-store before-substore-change
+
 # 完整恢复
-proxyhub restore /var/lib/proxyhub/backups/before-change
+proxyhub restore /var/lib/proxyhub/backups/full/before-change
+
+# 恢复单组件备份时只重建对应组件
+proxyhub restore \
+  /var/lib/proxyhub/backups/components/sub-store/before-substore-change
 ```
 
-内部备份位于 `/var/lib/proxyhub/backups/`。完整恢复会覆盖当前两个组件
-的数据。需要跨机器或卸载后恢复时，应先把备份复制到 ProxyHub 管理
-目录之外；彻底卸载会删除内部备份。
+内部备份位于 `/var/lib/proxyhub/backups/`。新备份包含类型、组件和
+SHA256 校验信息，恢复前会验证。完整恢复会覆盖当前两个组件的数据；
+组件恢复只停止、恢复并重建对应组件。为了防止路径替换，CLI 只恢复
+受管备份目录内的备份。需要跨机器恢复时，应先把备份安全复制回该目录；
+彻底卸载会删除内部备份。
 
 Sub-Store 前端自身的备份/恢复仍使用 Sub-Store 原生格式和逻辑。
 

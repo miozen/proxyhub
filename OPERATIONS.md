@@ -42,16 +42,36 @@ proxyhub rollback sub-store
 
 每个组件保留最近 5 份自动更新前备份；手动备份不参与此清理。
 
-## 完整备份与恢复
+## 备份与恢复
 
 ```sh
+# 完整备份；省略 all 仍保持兼容
 proxyhub backup
 proxyhub backup before-change
-proxyhub restore /var/lib/proxyhub/backups/before-change
+proxyhub backup all before-full-change
+
+# 单组件备份
+proxyhub backup proxyhub before-proxyhub-change
+proxyhub backup sub-store before-substore-change
+
+# 恢复
+proxyhub restore /var/lib/proxyhub/backups/full/before-change
+proxyhub restore \
+  /var/lib/proxyhub/backups/components/sub-store/before-substore-change
 ```
 
-完整备份和恢复会短暂停止两个服务。恢复会覆盖当前环境和两个数据卷。
-卸载前需把要保留的备份复制到 `/var/lib/proxyhub` 之外。
+完整备份和恢复会短暂停止两个服务。单组件备份与恢复只操作指定服务，
+不会重建另一个容器。新备份包含受限元数据和 SHA256 校验，校验失败时
+恢复会在停止容器前拒绝。CLI 只接受 `/var/lib/proxyhub/backups/` 内的
+恢复路径；跨机器恢复需先将备份复制回该目录。卸载前需把要保留的备份
+复制到 `/var/lib/proxyhub` 之外。
+
+所有有状态运维命令由 `/run/lock/proxyhub.lock` 串行化。锁会记录 PID、
+命令和开始时间；仍存活的持有者会阻止并发操作，只在确认 PID 已不存在
+后清理陈旧锁。`status`、`logs` 和 `check-updates` 保持只读且不获取锁。
+
+`status` 现在分别报告容器状态、组件自身健康、依赖健康和总体就绪状态。
+Sub-Store 自身健康同时验证后端 `/api/utils/env` 和官方前端。
 
 ## 安装边界
 

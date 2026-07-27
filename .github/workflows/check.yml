@@ -214,9 +214,11 @@ jobs:
             echo "Sub-Store same-digest update recreated a container"
             exit 1
           fi
-          mkdir -p backups/manual-keep
+          component_backup_dir=backups/components/sub-store
+          mkdir -p "$component_backup_dir/manual-keep"
           for suffix in 1 2 3 4 5 6; do
-            mkdir -p "backups/pre-update-sub-store-20000101T00000${suffix}Z"
+            mkdir -p \
+              "$component_backup_dir/pre-update-sub-store-20000101T00000${suffix}Z"
           done
           awk '
             /^SUBSTORE_IMAGE=/ {
@@ -229,13 +231,14 @@ jobs:
           proxyhub_id="$(docker compose ps -q proxyhub)"
           /tmp/proxyhub update sub-store --image "$substore_digest" --yes
           test "$(docker compose ps -q proxyhub)" = "$proxyhub_id"
-          automatic_count="$(find backups -mindepth 1 -maxdepth 1 -type d \
+          automatic_count="$(find "$component_backup_dir" \
+            -mindepth 1 -maxdepth 1 -type d \
             -name 'pre-update-sub-store-*' | wc -l)"
           if [ "$automatic_count" -ne 5 ]; then
             echo "Automatic Sub-Store backup retention is not 5"
             exit 1
           fi
-          test -d backups/manual-keep
+          test -d "$component_backup_dir/manual-keep"
           substore_id="$(docker compose ps -q sub-store)"
           if /tmp/proxyhub update --proxyhub-image ghcr.io/miozen/proxyhub:missing-ci; then
             echo "Injected update failure unexpectedly succeeded"
