@@ -787,9 +787,9 @@ backup_cmd() {
   operation_phase backup
   case "$scope" in
     all)
-      if result=$(full_backup_cmd "$name"); then
+      if backup_output=$(full_backup_cmd "$name"); then
         operation_finish success none
-        echo "$result"
+        echo "$backup_output"
       else
         OPERATION_FAILED_PHASE=backup
         operation_finish failed backup_failed
@@ -797,9 +797,9 @@ backup_cmd() {
       fi
       ;;
     proxyhub|sub-store)
-      if result=$(component_backup_cmd "$scope" "$name"); then
+      if backup_output=$(component_backup_cmd "$scope" "$name"); then
         operation_finish success none
-        echo "$result"
+        echo "$backup_output"
       else
         OPERATION_FAILED_PHASE=backup
         operation_finish failed backup_failed
