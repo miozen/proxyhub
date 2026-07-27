@@ -150,6 +150,7 @@ cleanup() {
       "$DEPLOY_DIR/.env.example" \
       "$DEPLOY_DIR/proxyhub" \
       "$DEPLOY_DIR/VERSION" \
+      "$DEPLOY_DIR/compatibility.json" \
       "$ENV_FILE"
     rmdir "$DATA_DIR/backups" "$DATA_DIR/state" "$DATA_DIR" \
       "$LOG_DIR" "$CONFIG_DIR" "$DEPLOY_DIR" 2>/dev/null || true
@@ -197,9 +198,23 @@ latest_release() {
 validate_archive() {
   archive=$1
   tar -tzf "$archive" | sort >"$tmp_dir/contents"
-  printf '%s\n' .env.example VERSION compose.yaml proxyhub | sort >"$tmp_dir/expected"
+  printf '%s\n' .env.example VERSION compatibility.json compose.yaml proxyhub |
+    sort >"$tmp_dir/expected"
   diff -u "$tmp_dir/expected" "$tmp_dir/contents" >/dev/null ||
     die "deployment archive contains unexpected files"
+}
+
+validate_compatibility_manifest() {
+  manifest=$1 expected_version=$2
+  schema=$(sed -n \
+    's/.*"schema":[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+    "$manifest" | head -1)
+  manifest_version=$(sed -n \
+    's/.*"proxyhub_version":[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$manifest" | head -1)
+  [ "$schema" = 1 ] || die "unsupported deployment manifest schema"
+  [ "$manifest_version" = "$expected_version" ] ||
+    die "deployment manifest version mismatch"
 }
 
 prepare_stable_assets() {
@@ -228,6 +243,8 @@ prepare_stable_assets() {
   validate_archive "$tmp_dir/$archive_name"
   mkdir "$tmp_dir/deployment"
   tar -xzf "$tmp_dir/$archive_name" -C "$tmp_dir/deployment"
+  validate_compatibility_manifest \
+    "$tmp_dir/deployment/compatibility.json" "$RELEASE_VERSION"
   [ -n "$PROXYHUB_IMAGE" ] ||
     PROXYHUB_IMAGE=ghcr.io/miozen/proxyhub:$RELEASE_TAG
 }
@@ -257,6 +274,19 @@ prepare_dev_assets() {
   install -m 0600 "$source_root/.env.example" "$tmp_dir/deployment/.env.example"
   install -m 0755 "$source_root/ops/proxyhub" "$tmp_dir/deployment/proxyhub"
   printf '%s\n' "dev-$REF" >"$tmp_dir/deployment/VERSION"
+  cat >"$tmp_dir/deployment/compatibility.json" <<EOF
+{
+  "schema": 1,
+  "proxyhub_version": "dev-$REF",
+  "manager_min_version": "0.1.5",
+  "compose_revision": 1,
+  "environment_revision": 1,
+  "substore_min_version": null,
+  "substore_max_version_exclusive": null
+}
+EOF
+  validate_compatibility_manifest \
+    "$tmp_dir/deployment/compatibility.json" "dev-$REF"
 }
 
 detect_docker() {
@@ -589,6 +619,8 @@ install -m 0644 "$tmp_dir/deployment/compose.yaml" "$DEPLOY_DIR/compose.yaml"
 install -m 0600 "$tmp_dir/deployment/.env.example" "$DEPLOY_DIR/.env.example"
 install -m 0755 "$tmp_dir/deployment/proxyhub" "$DEPLOY_DIR/proxyhub"
 install -m 0644 "$tmp_dir/deployment/VERSION" "$DEPLOY_DIR/VERSION"
+install -m 0644 "$tmp_dir/deployment/compatibility.json" \
+  "$DEPLOY_DIR/compatibility.json"
 
 install -m 0600 "$tmp_dir/deployment/.env.example" "$ENV_FILE"
 set_env SESSION_SECRET "$(openssl rand -hex 32)" "$ENV_FILE"
