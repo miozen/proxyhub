@@ -101,8 +101,10 @@ jobs:
           cd dist
           sha256sum -c SHA256SUMS
           tar -tzf "proxyhub-deploy-dev-${GITHUB_SHA}.tar.gz" | sort >contents.txt
-          printf '%s\n' .env.example VERSION compose.yaml proxyhub | sort >expected.txt
+          printf '%s\n' .env.example VERSION compatibility.json compose.yaml proxyhub | sort >expected.txt
           diff -u expected.txt contents.txt
+          grep -q '"schema": 1' \
+            <(tar -xOf "proxyhub-deploy-dev-${GITHUB_SHA}.tar.gz" compatibility.json)
           sh -n install.sh
           ./install.sh --help
       - uses: actions/upload-artifact@v4
