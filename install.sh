@@ -606,4 +606,3 @@ INSTALL_COMPLETE=true
 echo "ProxyHub installation completed."
 echo "URL: http://127.0.0.1:$PORT/"
 echo "CLI: proxyhub status"
-
