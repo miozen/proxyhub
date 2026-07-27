@@ -537,8 +537,7 @@ prepare_proxyhub_assets_guarded() {
 
 switch_proxyhub_assets() {
   asset_dir=$1
-  for asset_name in compose.yaml .env.example proxyhub VERSION \
-    compatibility.json; do
+  for asset_name in compose.yaml .env.example proxyhub VERSION; do
     asset_mode=0644
     [ "$asset_name" = proxyhub ] && asset_mode=0755
     [ "$asset_name" = .env.example ] && asset_mode=0600
@@ -547,6 +546,14 @@ switch_proxyhub_assets() {
       return 1
     mv "$asset_temp" "$DEPLOY_DIR/$asset_name" || return 1
   done
+  if [ -f "$asset_dir/compatibility.json" ]; then
+    asset_temp="$DEPLOY_DIR/.compatibility.json.new.$$"
+    install -m 0644 "$asset_dir/compatibility.json" "$asset_temp" ||
+      return 1
+    mv "$asset_temp" "$DEPLOY_DIR/compatibility.json" || return 1
+  else
+    rm -f "$DEPLOY_DIR/compatibility.json" || return 1
+  fi
 }
 
 merge_environment_template() {
@@ -637,19 +644,6 @@ restore_proxyhub_assets() {
     --env-file "$ENV_FILE" \
     -f "$restore_stage/compose.yaml" \
     config --quiet || return 1
-  if [ ! -f "$restore_stage/compatibility.json" ]; then
-    cat >"$restore_stage/compatibility.json" <<EOF
-{
-  "schema": 1,
-  "proxyhub_version": "$(cat "$restore_stage/VERSION")",
-  "manager_min_version": "0.1.5",
-  "compose_revision": 1,
-  "environment_revision": 1,
-  "substore_min_version": null,
-  "substore_max_version_exclusive": null
-}
-EOF
-  fi
   switch_proxyhub_assets "$restore_stage"
   restore_result=$?
   rm -rf "$restore_stage"
@@ -1656,3 +1650,4 @@ case "$command" in
   help|-h|--help) print_help ;;
   *) die "unknown command: $command" ;;
 esac
+
