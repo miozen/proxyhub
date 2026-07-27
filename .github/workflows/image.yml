@@ -82,9 +82,11 @@ jobs:
           cd dist
           sha256sum -c SHA256SUMS
           tar -tzf "proxyhub-deploy-$version.tar.gz" | sort >contents.txt
-          printf '%s\n' .env.example VERSION compose.yaml proxyhub | sort >expected.txt
+          printf '%s\n' .env.example VERSION compatibility.json compose.yaml proxyhub | sort >expected.txt
           diff -u expected.txt contents.txt
           test "$(tar -xOf "proxyhub-deploy-$version.tar.gz" VERSION)" = "$version"
+          test "$(tar -xOf "proxyhub-deploy-$version.tar.gz" compatibility.json |
+            sed -n 's/.*"proxyhub_version":[[:space:]]*"\([^"]*\)".*/\1/p')" = "$version"
           sh -n install.sh
           ./install.sh --help
       - name: Publish GitHub Release
