@@ -298,6 +298,7 @@ detect_docker() {
 }
 
 install_docker() {
+  # An already-satisfied dependency is a successful no-op under set -e.
   [ "$DOCKER_MISSING" = true ] || return 0
   confirm "Docker with Compose is missing. Install it now?" ||
     die "Docker Compose v2 is required"
