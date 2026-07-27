@@ -524,6 +524,9 @@ Acceptance:
 
 ### I4 - SSH terminal menu
 
+Status: CODE_COMPLETE on `dev`; automated PTY evidence is recorded in
+`I4_ACCEPTANCE_EVIDENCE.md`. The real SSH walkthrough remains assigned to I6.
+
 - I4.1 add bare-command TTY detection and `menu`;
 - I4.2 add home/component/backup/log/diagnostic menus;
 - I4.3 route every action through shared lifecycle functions;
