@@ -128,3 +128,91 @@ test('I5 deployment archive contains the exact managed asset set', {
   assert.equal(manifest.status, 0, manifest.stderr);
   assert.equal(JSON.parse(manifest.stdout).proxyhub_version, '0.2.0');
 });
+
+test('I5 installed ProxyHub backup captures assets without stopping Sub-Store', {
+  skip: process.platform === 'win32'
+}, (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-i5-backup-'));
+  const deploy = path.join(root, 'deploy');
+  const bin = path.join(root, 'bin');
+  const data = path.join(root, 'data');
+  const envFile = path.join(root, 'proxyhub.env');
+  const dockerLog = path.join(root, 'docker.log');
+  fs.mkdirSync(deploy, { recursive: true });
+  fs.mkdirSync(bin);
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  fs.writeFileSync(path.join(deploy, 'compose.yaml'), 'services: {}\n');
+  fs.writeFileSync(path.join(deploy, '.env.example'), 'PORT=3000\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(deploy, 'VERSION'), '0.1.5\n');
+  fs.writeFileSync(path.join(deploy, 'compatibility.json'), JSON.stringify({
+    schema: 1,
+    proxyhub_version: '0.1.5',
+    manager_min_version: '0.1.5',
+    compose_revision: 1,
+    environment_revision: 1,
+    substore_min_version: null,
+    substore_max_version_exclusive: null
+  }, null, 2));
+  const cli = path.join(deploy, 'proxyhub');
+  fs.writeFileSync(cli, source, { mode: 0o755 });
+  fs.writeFileSync(envFile, [
+    'PORT=3000',
+    'PROXYHUB_IMAGE=ghcr.io/miozen/proxyhub@sha256:abc',
+    'SUBSTORE_IMAGE=xream/sub-store@sha256:def',
+    'SESSION_SECRET=secret-not-for-output',
+    ''
+  ].join('\n'), { mode: 0o600 });
+  fs.writeFileSync(path.join(bin, 'wget'), `#!/bin/sh
+printf '%s\\n' '{"status":"ok","checks":{"database":"ok","substore":{"reachable":true}}}'
+`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'docker'), `#!/bin/sh
+printf '%s\\n' "$*" >>"$DOCKER_LOG"
+if [ "$1" = compose ]; then
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in --project-directory|--env-file|-f) shift 2 ;; *) break ;; esac
+  done
+  if [ "$1" = ps ] && [ "$2" = -q ]; then echo proxyhub-id; fi
+  exit 0
+fi
+if [ "$1" = run ]; then
+  for argument in "$@"; do
+    case "$argument" in *:/backup) backup_dir=\${argument%:/backup} ;; esac
+  done
+  : >"$backup_dir/proxyhub-data.tgz"
+fi
+`, { mode: 0o755 });
+
+  const result = spawnSync(cli, ['backup', 'proxyhub', 'asset-point'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      DOCKER_LOG: dockerLog,
+      PROXYHUB_ENV_FILE: envFile,
+      PROXYHUB_DATA_DIR: data,
+      PROXYHUB_LOG_DIR: path.join(root, 'logs'),
+      PROXYHUB_LOCK_DIR: path.join(data, 'state', 'lock')
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const backup = path.join(
+    data, 'backups', 'components', 'proxyhub', 'asset-point'
+  );
+  assert.ok(fs.existsSync(path.join(backup, 'deployment-assets.tgz')));
+  assert.equal(
+    fs.readFileSync(path.join(backup, 'proxyhub.env'), 'utf8'),
+    fs.readFileSync(envFile, 'utf8')
+  );
+  const listing = spawnSync(
+    'tar',
+    ['-tzf', path.join(backup, 'deployment-assets.tgz')],
+    { encoding: 'utf8' }
+  );
+  assert.equal(listing.status, 0, listing.stderr);
+  assert.match(listing.stdout, /\.\/compatibility\.json/);
+  const calls = fs.readFileSync(dockerLog, 'utf8');
+  assert.match(calls, /stop proxyhub/);
+  assert.doesNotMatch(calls, /stop sub-store/);
+});
