@@ -1,5 +1,22 @@
 # 运维与恢复
 
+## SSH 终端菜单
+
+```sh
+proxyhub
+proxyhub menu
+```
+
+只有 stdin 和 stdout 都是 TTY 时才打开菜单；非 TTY 裸命令打印帮助，
+显式 `menu` 则快速失败。菜单包含 ProxyHub、Sub-Store、更新检查、备份
+恢复、日志和 `doctor` 诊断入口。打开主页不会执行远程更新检查。
+
+菜单的变更动作先显示 `proxyhub ...` 等价命令，再以子进程调用同一公开
+CLI 路由，因此继续使用相同的操作锁、备份、健康检查和失败返回码。无效
+输入、EOF 和 Ctrl+C 不执行变更。输出始终为纯文本，兼容 `NO_COLOR`、
+窄终端和非 ANSI SSH 会话；菜单不显示密钥、Token、订阅 URL 或完整环境
+文件。
+
 ## 组件控制
 
 ```sh
@@ -42,19 +59,46 @@ proxyhub rollback sub-store
 
 每个组件保留最近 5 份自动更新前备份；手动备份不参与此清理。
 
-## 完整备份与恢复
+## 备份与恢复
 
 ```sh
+# 完整备份；省略 all 仍保持兼容
 proxyhub backup
 proxyhub backup before-change
-proxyhub restore /var/lib/proxyhub/backups/before-change
+proxyhub backup all before-full-change
+
+# 单组件备份
+proxyhub backup proxyhub before-proxyhub-change
+proxyhub backup sub-store before-substore-change
+
+# 恢复
+proxyhub restore /var/lib/proxyhub/backups/full/before-change
+proxyhub restore \
+  /var/lib/proxyhub/backups/components/sub-store/before-substore-change
 ```
 
-完整备份和恢复会短暂停止两个服务。恢复会覆盖当前环境和两个数据卷。
-卸载前需把要保留的备份复制到 `/var/lib/proxyhub` 之外。
+完整备份和恢复会短暂停止两个服务。单组件备份与恢复只操作指定服务，
+不会重建另一个容器。新备份包含受限元数据和 SHA256 校验，校验失败时
+恢复会在停止容器前拒绝。CLI 只接受 `/var/lib/proxyhub/backups/` 内的
+恢复路径；跨机器恢复需先将备份复制回该目录。卸载前需把要保留的备份
+复制到 `/var/lib/proxyhub` 之外。
+
+所有有状态运维命令由 `/run/lock/proxyhub.lock` 串行化。锁会记录 PID、
+命令和开始时间；仍存活的持有者会阻止并发操作，只在确认 PID 已不存在
+后清理陈旧锁。`status`、`logs` 和 `check-updates` 保持只读且不获取锁。
+
+`status` 现在分别报告容器状态、组件自身健康、依赖健康和总体就绪状态。
+Sub-Store 自身健康同时验证后端 `/api/utils/env` 和官方前端。
 
 ## 安装边界
 
+- TTY 默认进入半交互安装：未指定时询问端口、只在依赖缺失时询问安装，
+  最后展示解析后的主机、URL、镜像 digest、容器、卷和路径摘要。
+- 干净安装确认是 `[Y/n]`；自动化必须使用 `--yes`，非 TTY 永不等待输入。
+- 默认端口占用时，TTY 可输入新端口；自动化必须显式传
+  `--port <available-port> --yes`。
+- 最终确认前不会创建 ProxyHub 受管目录、配置或数据卷。成功后以 `0600`
+  原子写入 `/var/lib/proxyhub/state/installation`。
 - 安装器只执行全新安装；发现任何受管状态即拒绝。
 - 数据保留升级只使用 `proxyhub update`。
 - 干净覆盖安装需要：

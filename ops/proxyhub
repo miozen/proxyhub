@@ -40,12 +40,32 @@ if [ "$INSTALLED_LAYOUT" = true ]; then
   LOG_DIR=${PROXYHUB_LOG_DIR:-/var/log/proxyhub}
   STATE_DIR="$DATA_DIR/state"
   BACKUP_DIR="$DATA_DIR/backups"
+  DEFAULT_LOCK_DIR=/run/lock/proxyhub.lock
 else
   DATA_DIR=${PROXYHUB_DATA_DIR:-$DEPLOY_DIR}
   LOG_DIR=${PROXYHUB_LOG_DIR:-$DEPLOY_DIR}
   STATE_DIR="$DEPLOY_DIR/.proxyhub"
   BACKUP_DIR="$DEPLOY_DIR/backups"
+  DEFAULT_LOCK_DIR="$STATE_DIR/lock"
 fi
+LOCK_DIR=${PROXYHUB_LOCK_DIR:-$DEFAULT_LOCK_DIR}
+FULL_BACKUP_DIR="$BACKUP_DIR/full"
+COMPONENT_BACKUP_DIR="$BACKUP_DIR/components"
+MANAGER_VERSION=0.1.6
+ASSET_STAGE=
+ASSET_TARGET_REVISION=none
+LOCK_HELD=false
+OPERATION_FILE=
+OPERATION_COMPONENT=
+OPERATION_NAME=
+OPERATION_STARTED=
+OPERATION_SOURCE=
+OPERATION_TARGET=
+OPERATION_BACKUP=
+OPERATION_PHASE=
+OPERATION_FAILED_PHASE=none
+OPERATION_ASSET_SOURCE=none
+OPERATION_ASSET_TARGET=none
 
 die() { echo "proxyhub: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
@@ -58,33 +78,205 @@ dc() {
 }
 now() { date -u +%Y%m%dT%H%M%SZ; }
 ensure_env() { [ -f "$ENV_FILE" ] || die "missing .env; run: proxyhub install"; }
-health() {
-  port=$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)
-  port=${port:-3000}
-  i=0
-  while [ "$i" -lt 45 ]; do
-    wget -qO- "http://127.0.0.1:$port/healthz" >/dev/null 2>&1 && return 0
-    i=$((i + 1)); sleep 2
-  done
+atomic_write() {
+  output=$1 content=$2
+  parent=$(dirname "$output")
+  mkdir -p "$parent"
+  temp="$output.tmp.$$"
+  umask 077
+  printf '%s\n' "$content" >"$temp"
+  chmod 600 "$temp"
+  mv "$temp" "$output"
+}
+lock_path_is_allowed() {
+  case "$LOCK_DIR" in
+    /run/lock/proxyhub.lock|"$STATE_DIR"/lock) return 0 ;;
+    *)
+      [ -n "${PROXYHUB_LOCK_DIR:-}" ] &&
+        case "$LOCK_DIR" in "$STATE_DIR"/*) return 0 ;; esac
+      ;;
+  esac
   return 1
 }
-component_health() {
-  component=$1
-  if [ "$component" = proxyhub ]; then
-    health
-    return
+release_lock() {
+  [ "$LOCK_HELD" = true ] || return 0
+  if [ -n "$ASSET_STAGE" ]; then
+    case "$ASSET_STAGE" in
+      "$STATE_DIR"/asset-stage-*) rm -rf "$ASSET_STAGE" ;;
+    esac
+    ASSET_STAGE=
   fi
+  lock_path_is_allowed || return 0
+  if [ -L "$LOCK_DIR" ]; then
+    LOCK_HELD=false
+    return 0
+  fi
+  rm -f "$LOCK_DIR/pid" "$LOCK_DIR/command" "$LOCK_DIR/started"
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+  LOCK_HELD=false
+}
+acquire_lock() {
+  lock_command=$1
+  lock_path_is_allowed || die "refusing unexpected lock path: $LOCK_DIR"
+  mkdir -p "$(dirname "$LOCK_DIR")"
+  [ ! -L "$LOCK_DIR" ] || die "operation lock must not be a symbolic link"
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    owner_pid=
+    if [ -e "$LOCK_DIR/pid" ]; then
+      [ -f "$LOCK_DIR/pid" ] && [ ! -L "$LOCK_DIR/pid" ] ||
+        die "operation lock PID file is invalid"
+      owner_pid=$(cat "$LOCK_DIR/pid")
+    fi
+    case "$owner_pid" in
+      ''|*[!0-9]*) owner_pid= ;;
+    esac
+    if [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
+      owner_command=unknown owner_started=unknown
+      [ -f "$LOCK_DIR/command" ] && [ ! -L "$LOCK_DIR/command" ] &&
+        owner_command=$(cat "$LOCK_DIR/command")
+      [ -f "$LOCK_DIR/started" ] && [ ! -L "$LOCK_DIR/started" ] &&
+        owner_started=$(cat "$LOCK_DIR/started")
+      die "operation locked by PID $owner_pid: $owner_command since $owner_started"
+    fi
+    rm -f "$LOCK_DIR/pid" "$LOCK_DIR/command" "$LOCK_DIR/started"
+    rmdir "$LOCK_DIR" 2>/dev/null ||
+      die "operation lock is not a valid stale ProxyHub lock"
+    mkdir "$LOCK_DIR" 2>/dev/null ||
+      die "could not acquire operation lock"
+  fi
+  umask 077
+  printf '%s\n' "$$" >"$LOCK_DIR/pid"
+  printf '%s\n' "$lock_command" >"$LOCK_DIR/command"
+  now >"$LOCK_DIR/started"
+  chmod 600 "$LOCK_DIR/pid" "$LOCK_DIR/command" "$LOCK_DIR/started"
+  LOCK_HELD=true
+  trap 'release_lock' EXIT
+  trap 'exit 1' HUP INT TERM
+}
+operation_content() {
+  phase=$1 result=$2 rollback=${3:-none}
+  cat <<EOF
+schema=1
+component=$OPERATION_COMPONENT
+operation=$OPERATION_NAME
+started_at=$OPERATION_STARTED
+updated_at=$(now)
+phase=$phase
+result=$result
+source_image=$OPERATION_SOURCE
+target_image=$OPERATION_TARGET
+source_asset_revision=$OPERATION_ASSET_SOURCE
+target_asset_revision=$OPERATION_ASSET_TARGET
+backup=$OPERATION_BACKUP
+rollback=$rollback
+failed_phase=$OPERATION_FAILED_PHASE
+EOF
+}
+operation_begin() {
+  OPERATION_COMPONENT=$1
+  OPERATION_NAME=$2
+  OPERATION_SOURCE=${3:-none}
+  OPERATION_TARGET=${4:-none}
+  OPERATION_BACKUP=${5:-none}
+  OPERATION_PHASE=prepare
+  OPERATION_FAILED_PHASE=none
+  OPERATION_ASSET_SOURCE=none
+  OPERATION_ASSET_TARGET=none
+  OPERATION_STARTED=$(now)
+  operation_dir="$STATE_DIR/operations"
+  mkdir -p "$operation_dir"
+  OPERATION_FILE="$operation_dir/$OPERATION_STARTED-$$-$OPERATION_COMPONENT-$OPERATION_NAME"
+  atomic_write "$OPERATION_FILE" "$(operation_content prepare in_progress)"
+}
+operation_phase() {
+  phase=$1
+  OPERATION_PHASE=$phase
+  [ -n "$OPERATION_FILE" ] || return 0
+  atomic_write "$OPERATION_FILE" "$(operation_content "$phase" in_progress)"
+}
+operation_finish() {
+  result=$1 rollback=${2:-none}
+  [ -n "$OPERATION_FILE" ] || return 0
+  atomic_write "$OPERATION_FILE" \
+    "$(operation_content "$OPERATION_PHASE" "$result" "$rollback")"
+}
+write_component_state() {
+  component=$1 image=$2 result=$3 backup=${4:-none}
+  asset_revision=not_applicable
+  [ "$component" != proxyhub ] ||
+    asset_revision=$(current_asset_revision)
+  atomic_write "$STATE_DIR/$component" "$(cat <<EOF
+schema=1
+component=$component
+image=$image
+asset_revision=$asset_revision
+updated_at=$(now)
+result=$result
+backup=$backup
+EOF
+)"
+}
+proxyhub_health_payload() {
+  port=$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)
+  port=${port:-3000}
+  wget -qO- "http://127.0.0.1:$port/healthz" 2>/dev/null
+}
+proxyhub_self_health() {
+  attempts=${PROXYHUB_HEALTH_ATTEMPTS:-45}
   i=0
-  while [ "$i" -lt 45 ]; do
-    if dc exec -T sub-store node -e \
-      "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))" \
-      >/dev/null 2>&1; then
+  while [ "$i" -lt "$attempts" ]; do
+    payload=$(proxyhub_health_payload || true)
+    if printf '%s\n' "$payload" |
+      grep -Eq '"database"[[:space:]]*:[[:space:]]*"ok"'; then
       return 0
     fi
     i=$((i + 1)); sleep 2
   done
   return 1
 }
+dependency_health() {
+  attempts=${PROXYHUB_HEALTH_ATTEMPTS:-45}
+  i=0
+  while [ "$i" -lt "$attempts" ]; do
+    payload=$(proxyhub_health_payload || true)
+    if printf '%s\n' "$payload" |
+      grep -Eq '"reachable"[[:space:]]*:[[:space:]]*true'; then
+      return 0
+    fi
+    i=$((i + 1)); sleep 2
+  done
+  return 1
+}
+substore_self_health() {
+  attempts=${PROXYHUB_HEALTH_ATTEMPTS:-45}
+  i=0
+  while [ "$i" -lt "$attempts" ]; do
+    if dc exec -T sub-store node -e "
+      Promise.all([
+        fetch('http://127.0.0.1:3000/api/utils/env'),
+        fetch('http://127.0.0.1:3001/')
+      ]).then(rs => process.exit(rs.every(r => r.ok) ? 0 : 1))
+        .catch(() => process.exit(1))
+    " >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1)); sleep 2
+  done
+  return 1
+}
+component_self_health() {
+  case "$1" in
+    proxyhub) proxyhub_self_health ;;
+    sub-store) substore_self_health ;;
+    *) die "component must be proxyhub or sub-store" ;;
+  esac
+}
+component_health() {
+  component=$1
+  component_self_health "$component" || return 1
+  [ "$component" != proxyhub ] || dependency_health
+}
+health() { component_health proxyhub; }
 validate_component() {
   case "${1:-}" in
     proxyhub|sub-store) ;;
@@ -154,6 +346,403 @@ set_env() {
   mv "$tmp" "$ENV_FILE"
 }
 
+download_file() {
+  source_url=$1 output_file=$2
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 --connect-timeout 15 "$source_url" -o "$output_file"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -O "$output_file" "$source_url"
+  else
+    die "curl or wget is required for deployment asset discovery"
+  fi
+}
+
+manifest_value() {
+  manifest_file=$1 manifest_key=$2
+  value=$(sed -n \
+    "s/.*\"$manifest_key\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" \
+    "$manifest_file" | head -1)
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return
+  fi
+  if grep -Eq "\"$manifest_key\":[[:space:]]*null" "$manifest_file"; then
+    echo null
+    return
+  fi
+  sed -n \
+    "s/.*\"$manifest_key\":[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p" \
+    "$manifest_file" | head -1
+}
+
+valid_release_version() {
+  printf '%s\n' "${1#v}" |
+    LC_ALL=C grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
+version_compare() {
+  left=${1#v} operator=$2 right=${3#v}
+  valid_release_version "$left" && valid_release_version "$right" || return 2
+  awk -v left="$left" -v right="$right" -v operator="$operator" '
+    BEGIN {
+      split(left, a, "."); split(right, b, ".")
+      result=0
+      for (i=1; i<=3; i++) {
+        if ((a[i] + 0) > (b[i] + 0)) { result=1; break }
+        if ((a[i] + 0) < (b[i] + 0)) { result=-1; break }
+      }
+      if (operator == "ge") exit(result >= 0 ? 0 : 1)
+      if (operator == "lt") exit(result < 0 ? 0 : 1)
+      exit 2
+    }
+  '
+}
+
+current_asset_revision() {
+  if [ -f "$DEPLOY_DIR/compatibility.json" ]; then
+    revision=$(manifest_value "$DEPLOY_DIR/compatibility.json" proxyhub_version)
+    [ -n "$revision" ] && {
+      printf '%s\n' "$revision"
+      return
+    }
+  fi
+  [ -f "$DEPLOY_DIR/VERSION" ] && cat "$DEPLOY_DIR/VERSION" || echo legacy
+}
+
+current_substore_version() {
+  image=$(get_env SUBSTORE_IMAGE "")
+  case "$image" in
+    xream/sub-store:*) printf '%s\n' "${image#xream/sub-store:}" ;;
+    *) echo unknown ;;
+  esac
+}
+
+validate_compatibility_manifest() {
+  manifest_file=$1 expected_version=$2
+  [ "$(manifest_value "$manifest_file" schema)" = 1 ] ||
+    die "unsupported deployment manifest schema"
+  manifest_version=$(manifest_value "$manifest_file" proxyhub_version)
+  [ "$manifest_version" = "$expected_version" ] ||
+    die "deployment manifest version does not match $expected_version"
+  manager_min=$(manifest_value "$manifest_file" manager_min_version)
+  valid_release_version "$manager_min" ||
+    die "invalid manager_min_version in deployment manifest"
+  version_compare "$MANAGER_VERSION" ge "$manager_min" ||
+    die "ProxyHub manager $manager_min or newer is required before this update"
+  compose_revision=$(manifest_value "$manifest_file" compose_revision)
+  environment_revision=$(manifest_value "$manifest_file" environment_revision)
+  case "$compose_revision:$environment_revision" in
+    *[!0-9:]*|:|*:|:*) die "invalid deployment asset revision" ;;
+  esac
+
+  substore_min=$(manifest_value "$manifest_file" substore_min_version)
+  substore_max=$(manifest_value \
+    "$manifest_file" substore_max_version_exclusive)
+  [ -n "$substore_min" ] && [ -n "$substore_max" ] ||
+    die "deployment manifest is missing Sub-Store compatibility fields"
+  if [ "$substore_min" = null ] && [ "$substore_max" = null ]; then
+    return
+  fi
+  substore_version=$(current_substore_version)
+  if ! valid_release_version "$substore_version"; then
+    die "cannot prove Sub-Store compatibility; run proxyhub update sub-store --version <compatible-version> first"
+  fi
+  if [ "$substore_min" != null ] &&
+    ! version_compare "$substore_version" ge "$substore_min"; then
+    die "Sub-Store $substore_min or newer is required; run proxyhub update sub-store --version $substore_min"
+  fi
+  if [ "$substore_max" != null ] &&
+    ! version_compare "$substore_version" lt "$substore_max"; then
+    die "Sub-Store must be older than $substore_max; select a compatible Sub-Store version explicitly"
+  fi
+}
+
+validate_asset_directory() {
+  asset_dir=$1 expected_version=$2
+  [ -f "$asset_dir/compose.yaml" ] &&
+    [ -f "$asset_dir/.env.example" ] &&
+    [ -f "$asset_dir/proxyhub" ] &&
+    [ -f "$asset_dir/VERSION" ] &&
+    [ -f "$asset_dir/compatibility.json" ] ||
+    die "deployment asset set is incomplete"
+  [ "$(cat "$asset_dir/VERSION")" = "$expected_version" ] ||
+    die "deployment VERSION does not match $expected_version"
+  sh -n "$asset_dir/proxyhub" ||
+    die "candidate ProxyHub manager has invalid shell syntax"
+  validate_compatibility_manifest \
+    "$asset_dir/compatibility.json" "$expected_version"
+  docker compose \
+    --project-directory "$DEPLOY_DIR" \
+    --env-file "$ENV_FILE" \
+    -f "$asset_dir/compose.yaml" \
+    config --quiet ||
+    die "candidate Compose configuration is invalid"
+}
+
+prepare_proxyhub_assets() {
+  candidate=$1
+  ASSET_STAGE=
+  ASSET_TARGET_REVISION=none
+  case "$candidate" in
+    ghcr.io/miozen/proxyhub:v*) release_tag=${candidate##*:} ;;
+    *) return 0 ;;
+  esac
+  release_version=${release_tag#v}
+  valid_release_version "$release_version" ||
+    die "invalid ProxyHub release version for deployment assets"
+  mkdir -p "$STATE_DIR"
+  ASSET_STAGE="$STATE_DIR/asset-stage-$$"
+  [ ! -e "$ASSET_STAGE" ] ||
+    die "deployment asset staging path already exists"
+  mkdir "$ASSET_STAGE"
+  archive_name=proxyhub-deploy-$release_version.tar.gz
+  release_base=https://github.com/miozen/proxyhub/releases/download/$release_tag
+  download_file "$release_base/$archive_name" "$ASSET_STAGE/$archive_name"
+  download_file "$release_base/SHA256SUMS" "$ASSET_STAGE/SHA256SUMS"
+  grep "[[:space:]]$archive_name\$" "$ASSET_STAGE/SHA256SUMS" \
+    >"$ASSET_STAGE/archive.sha256" ||
+    die "deployment archive checksum is missing"
+  (
+    cd "$ASSET_STAGE"
+    sha256sum -c archive.sha256
+  ) || die "deployment archive checksum failed"
+  tar -tzf "$ASSET_STAGE/$archive_name" | sort >"$ASSET_STAGE/contents"
+  printf '%s\n' \
+    .env.example VERSION compatibility.json compose.yaml proxyhub |
+    sort >"$ASSET_STAGE/expected"
+  diff -u "$ASSET_STAGE/expected" "$ASSET_STAGE/contents" >/dev/null ||
+    die "deployment archive contains unexpected files"
+  mkdir "$ASSET_STAGE/candidate"
+  tar -xzf "$ASSET_STAGE/$archive_name" -C "$ASSET_STAGE/candidate"
+  validate_asset_directory "$ASSET_STAGE/candidate" "$release_version"
+  ASSET_TARGET_REVISION=$release_version
+}
+
+prepare_proxyhub_assets_guarded() {
+  candidate=$1
+  ASSET_STAGE=
+  ASSET_TARGET_REVISION=none
+  case "$candidate" in
+    ghcr.io/miozen/proxyhub:v*)
+      release_tag=${candidate##*:}
+      ASSET_STAGE="$STATE_DIR/asset-stage-$$"
+      ASSET_TARGET_REVISION=${release_tag#v}
+      ;;
+  esac
+  (
+    trap - 0 HUP INT TERM
+    prepare_proxyhub_assets "$candidate"
+  )
+}
+
+switch_proxyhub_assets() {
+  asset_dir=$1
+  for asset_name in compose.yaml .env.example proxyhub VERSION; do
+    asset_mode=0644
+    [ "$asset_name" = proxyhub ] && asset_mode=0755
+    [ "$asset_name" = .env.example ] && asset_mode=0600
+    asset_temp="$DEPLOY_DIR/.$asset_name.new.$$"
+    install -m "$asset_mode" "$asset_dir/$asset_name" "$asset_temp" ||
+      return 1
+    mv "$asset_temp" "$DEPLOY_DIR/$asset_name" || return 1
+  done
+  if [ -f "$asset_dir/compatibility.json" ]; then
+    asset_temp="$DEPLOY_DIR/.compatibility.json.new.$$"
+    install -m 0644 "$asset_dir/compatibility.json" "$asset_temp" ||
+      return 1
+    mv "$asset_temp" "$DEPLOY_DIR/compatibility.json" || return 1
+  else
+    rm -f "$DEPLOY_DIR/compatibility.json" || return 1
+  fi
+}
+
+merge_environment_template() {
+  template=$1
+  environment_temp="$ENV_FILE.asset-update.$$"
+  cp "$ENV_FILE" "$environment_temp" || {
+    echo "could not stage the current environment" >&2
+    return 1
+  }
+  while IFS= read -r template_line; do
+    template_line=$(printf '%s' "$template_line" | sed 's/\r$//')
+    case "$template_line" in ''|'#'*) continue ;; esac
+    template_key=${template_line%%=*}
+    case "$template_key" in
+      ''|*[!A-Z0-9_]*)
+        echo "invalid key in the candidate environment template" >&2
+        rm -f "$environment_temp"
+        return 1
+        ;;
+    esac
+    if ! grep -q "^$template_key=" "$environment_temp"; then
+      printf '%s\n' "$template_line" >>"$environment_temp" || {
+        rm -f "$environment_temp"
+        return 1
+      }
+    fi
+  done <"$template"
+  chmod 600 "$environment_temp" || {
+    echo "could not protect the staged environment" >&2
+    rm -f "$environment_temp"
+    return 1
+  }
+  mv "$environment_temp" "$ENV_FILE" || {
+    echo "could not atomically switch the environment" >&2
+    rm -f "$environment_temp"
+    return 1
+  }
+  return 0
+}
+
+backup_proxyhub_assets() {
+  target=$1
+  asset_copy="$target/.deployment-assets"
+  mkdir "$asset_copy"
+  for asset_name in compose.yaml .env.example proxyhub VERSION; do
+    [ -f "$DEPLOY_DIR/$asset_name" ] ||
+      die "current ProxyHub deployment asset is missing: $asset_name"
+    cp -p "$DEPLOY_DIR/$asset_name" "$asset_copy/$asset_name"
+  done
+  if [ -f "$DEPLOY_DIR/compatibility.json" ]; then
+    cp -p "$DEPLOY_DIR/compatibility.json" \
+      "$asset_copy/compatibility.json"
+  fi
+  cp "$ENV_FILE" "$target/proxyhub.env"
+  chmod 600 "$target/proxyhub.env"
+  tar -czf "$target/deployment-assets.tgz" -C "$asset_copy" .
+  rm -rf "$asset_copy"
+}
+
+restore_proxyhub_assets() {
+  target=$1
+  [ -f "$target/deployment-assets.tgz" ] || return 0
+  restore_stage="$STATE_DIR/asset-stage-restore-$$"
+  [ ! -e "$restore_stage" ] || return 1
+  mkdir "$restore_stage"
+  tar -tzf "$target/deployment-assets.tgz" |
+    sed 's|^\./||' | sed '/^$/d' | sort >"$restore_stage/contents" ||
+    return 1
+  printf '%s\n' .env.example VERSION compose.yaml proxyhub |
+    sort >"$restore_stage/legacy-expected"
+  printf '%s\n' \
+    .env.example VERSION compatibility.json compose.yaml proxyhub |
+    sort >"$restore_stage/current-expected"
+  if ! diff -u "$restore_stage/legacy-expected" \
+      "$restore_stage/contents" >/dev/null &&
+    ! diff -u "$restore_stage/current-expected" \
+      "$restore_stage/contents" >/dev/null; then
+    return 1
+  fi
+  tar -xzf "$target/deployment-assets.tgz" -C "$restore_stage" ||
+    return 1
+  for asset_name in compose.yaml .env.example proxyhub VERSION; do
+    [ -f "$restore_stage/$asset_name" ] || return 1
+  done
+  sh -n "$restore_stage/proxyhub" || return 1
+  docker compose \
+    --project-directory "$DEPLOY_DIR" \
+    --env-file "$ENV_FILE" \
+    -f "$restore_stage/compose.yaml" \
+    config --quiet || return 1
+  switch_proxyhub_assets "$restore_stage"
+  restore_result=$?
+  rm -rf "$restore_stage"
+  return "$restore_result"
+}
+
+backup_path() {
+  scope=$1 name=$2
+  case "$scope" in
+    all) printf '%s\n' "$FULL_BACKUP_DIR/$name" ;;
+    proxyhub|sub-store)
+      printf '%s\n' "$COMPONENT_BACKUP_DIR/$scope/$name"
+      ;;
+    *) die "backup scope must be all, proxyhub or sub-store" ;;
+  esac
+}
+validate_backup_name() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._-]*) die "invalid backup name" ;;
+  esac
+}
+backup_root_path() {
+  mkdir -p "$BACKUP_DIR"
+  (CDPATH= cd -- "$BACKUP_DIR" && pwd -P)
+}
+validated_backup_path() {
+  target=$1
+  [ -d "$target" ] || die "backup directory required"
+  root=$(backup_root_path)
+  resolved=$(CDPATH= cd -- "$target" && pwd -P)
+  case "$resolved" in
+    "$root"/*) printf '%s\n' "$resolved" ;;
+    *) die "backup path must remain under $root" ;;
+  esac
+}
+write_backup_metadata() {
+  target=$1 type=$2 component=$3 created=$4
+  atomic_write "$target/metadata" "$(cat <<EOF
+schema=1
+type=$type
+component=$component
+created_at=$created
+EOF
+)"
+}
+write_backup_checksums() {
+  target=$1; shift
+  (
+    cd "$target"
+    sha256sum "$@" >SHA256SUMS
+  )
+}
+metadata_value() {
+  target=$1 key=$2
+  sed -n "s/^$key=//p" "$target/metadata" | tail -1
+}
+env_file_value() {
+  file=$1 key=$2
+  sed -n "s/^$key=//p" "$file" | tail -1
+}
+verify_backup_checksums() {
+  target=$1
+  [ -f "$target/SHA256SUMS" ] || die "backup checksum manifest is missing"
+  (cd "$target" && sha256sum -c SHA256SUMS >/dev/null) ||
+    die "backup checksum validation failed"
+}
+verify_component_backup() {
+  component=$1 target=$2
+  archive=$(component_archive_name "$component")
+  [ -f "$target/metadata" ] && [ -f "$target/image" ] &&
+    [ -f "$target/$archive" ] || die "invalid $component backup"
+  [ "$(metadata_value "$target" schema)" = 1 ] ||
+    die "unsupported backup schema"
+  [ "$(metadata_value "$target" type)" = component ] ||
+    die "backup is not component-scoped"
+  [ "$(metadata_value "$target" component)" = "$component" ] ||
+    die "backup component mismatch"
+  image=$(cat "$target/image")
+  validate_image "$component" "$image"
+  verify_backup_checksums "$target"
+}
+verify_full_backup() {
+  target=$1
+  [ -f "$target/metadata" ] && [ -f "$target/env" ] &&
+    [ -f "$target/proxyhub-data.tgz" ] &&
+    [ -f "$target/substore-data.tgz" ] || die "invalid full backup"
+  [ "$(metadata_value "$target" schema)" = 1 ] ||
+    die "unsupported backup schema"
+  [ "$(metadata_value "$target" type)" = full ] ||
+    die "backup is not full"
+  [ "$(metadata_value "$target" component)" = all ] ||
+    die "full backup component mismatch"
+  proxyhub_image=$(env_file_value "$target/env" PROXYHUB_IMAGE)
+  substore_image=$(env_file_value "$target/env" SUBSTORE_IMAGE)
+  validate_image proxyhub "$proxyhub_image"
+  validate_image sub-store "$substore_image"
+  verify_backup_checksums "$target"
+}
+
 install_cmd() {
   need docker
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
@@ -172,10 +761,12 @@ install_cmd() {
   health || { dc logs proxyhub; die "health check failed"; }
   echo "ProxyHub installed at http://127.0.0.1:$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -1)/proxyhub/"
 }
-backup_cmd() {
-  ensure_env; mkdir -p "$BACKUP_DIR"
-  name=${1:-"proxyhub-$(now)"}
-  target="$BACKUP_DIR/$name"; mkdir -p "$target"
+full_backup_cmd() {
+  name=$1
+  created=$(now)
+  target=$(backup_path all "$name")
+  [ ! -e "$target" ] || die "backup already exists: $name"
+  mkdir -p "$target"
   cp "$ENV_FILE" "$target/env"
   running=$(dc ps -q)
   [ -z "$running" ] || dc stop
@@ -187,25 +778,128 @@ backup_cmd() {
     health || failed=true
   fi
   [ "$failed" = false ] || die "backup failed"
+  write_backup_metadata "$target" full all "$created"
+  write_backup_checksums "$target" \
+    metadata env proxyhub-data.tgz substore-data.tgz
   echo "$target"
 }
+backup_cmd() {
+  ensure_env
+  scope=${1:-all}
+  case "$scope" in
+    all|proxyhub|sub-store) shift || true ;;
+    *) scope=all ;;
+  esac
+  name=${1:-"manual-$scope-$(now)"}
+  [ "$#" -le 1 ] || die "backup accepts a scope and optional name"
+  validate_backup_name "$name"
+  target=$(backup_path "$scope" "$name")
+  operation_begin "$scope" backup none none "$target"
+  operation_phase backup
+  case "$scope" in
+    all)
+      if backup_output=$(full_backup_cmd "$name"); then
+        operation_finish success none
+        echo "$backup_output"
+      else
+        OPERATION_FAILED_PHASE=backup
+        operation_finish failed backup_failed
+        return 1
+      fi
+      ;;
+    proxyhub|sub-store)
+      if backup_output=$(component_backup_cmd "$scope" "$name"); then
+        operation_finish success none
+        echo "$backup_output"
+      else
+        OPERATION_FAILED_PHASE=backup
+        operation_finish failed backup_failed
+        return 1
+      fi
+      ;;
+  esac
+}
+full_restore_cmd() {
+  target=$1
+  verify_full_backup "$target" || return 1
+  dc down || return 1
+  restore_volume "$(volume_name 1)" "$target/proxyhub-data.tgz" || return 1
+  restore_volume "$(volume_name 2)" "$target/substore-data.tgz" || return 1
+  cp "$target/env" "$ENV_FILE" || return 1
+  dc up -d || return 1
+  health || return 1
+  write_component_state proxyhub \
+    "$(env_file_value "$target/env" PROXYHUB_IMAGE)" restored "$target" ||
+    return 1
+  write_component_state sub-store \
+    "$(env_file_value "$target/env" SUBSTORE_IMAGE)" restored "$target" ||
+    return 1
+}
 restore_cmd() {
-  ensure_env; target=${1:-}; [ -d "$target" ] || die "backup directory required"
-  [ -f "$target/proxyhub-data.tgz" ] && [ -f "$target/substore-data.tgz" ] || die "invalid backup"
+  ensure_env
+  target=$(validated_backup_path "${1:-}")
+  [ "$#" -eq 1 ] || die "restore accepts one backup path"
+  if [ -f "$target/metadata" ]; then
+    case "$(metadata_value "$target" type):$(metadata_value "$target" component)" in
+      full:all) restore_component=all ;;
+      component:proxyhub) restore_component=proxyhub ;;
+      component:sub-store) restore_component=sub-store ;;
+      *) die "invalid backup metadata" ;;
+    esac
+    operation_begin "$restore_component" restore none none "$target"
+    operation_phase restore
+    if [ "$restore_component" = all ]; then
+      if full_restore_cmd "$target"; then
+        operation_finish success none
+      else
+        OPERATION_FAILED_PHASE=restore
+        operation_finish failed restore_failed
+        return 1
+      fi
+    elif component_restore_cmd "$restore_component" "$target"; then
+      operation_finish success none
+    else
+      OPERATION_FAILED_PHASE=restore
+      operation_finish failed restore_failed
+      return 1
+    fi
+    return
+  fi
+  [ -f "$target/proxyhub-data.tgz" ] &&
+    [ -f "$target/substore-data.tgz" ] &&
+    [ -f "$target/env" ] || die "invalid legacy backup"
+  operation_begin all restore none none "$target"
+  operation_phase legacy_restore
   dc down
   restore_volume "$(volume_name 1)" "$target/proxyhub-data.tgz"
   restore_volume "$(volume_name 2)" "$target/substore-data.tgz"
   cp "$target/env" "$ENV_FILE"
   dc up -d
-  health || die "restore health check failed"
+  if health; then
+    write_component_state proxyhub \
+      "$(env_file_value "$target/env" PROXYHUB_IMAGE)" restored "$target"
+    write_component_state sub-store \
+      "$(env_file_value "$target/env" SUBSTORE_IMAGE)" restored "$target"
+    operation_finish success none
+  else
+    OPERATION_FAILED_PHASE=legacy_restore
+    operation_finish failed restore_health_failed
+    die "legacy restore health check failed"
+  fi
 }
 component_backup_cmd() {
   component=$1 name=$2
   validate_component "$component"
-  mkdir -p "$BACKUP_DIR"
-  target="$BACKUP_DIR/$name"; mkdir -p "$target"
+  validate_backup_name "$name"
+  created=$(now)
+  target=$(backup_path "$component" "$name")
+  [ ! -e "$target" ] || die "backup already exists: $name"
+  mkdir -p "$target"
   key=$(component_env_key "$component")
   get_env "$key" "$(component_default_image "$component")" >"$target/image"
+  if [ "$component" = proxyhub ] && [ "$INSTALLED_LAYOUT" = true ]; then
+    backup_proxyhub_assets "$target"
+  fi
   service=$(component_service "$component")
   running=$(dc ps -q "$service")
   [ -z "$running" ] || dc stop "$service"
@@ -217,6 +911,17 @@ component_backup_cmd() {
     component_health "$component" || failed=true
   fi
   [ "$failed" = false ] || die "$component backup failed"
+  write_backup_metadata "$target" component "$component" "$created"
+  if [ "$component" = proxyhub ] &&
+    [ -f "$target/deployment-assets.tgz" ]; then
+    printf '%s\n' "asset_revision=$(current_asset_revision)" \
+      >>"$target/metadata"
+    write_backup_checksums "$target" metadata image proxyhub.env \
+      "$(component_archive_name "$component")" deployment-assets.tgz
+  else
+    write_backup_checksums "$target" \
+      metadata image "$(component_archive_name "$component")"
+  fi
   case "$name" in
     pre-update-"$component"-*) prune_automatic_backups "$component" ;;
   esac
@@ -227,7 +932,9 @@ prune_automatic_backups() {
   validate_component "$component"
   mkdir -p "$STATE_DIR"
   list="$STATE_DIR/.automatic-backups-$component"
-  find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d \
+  component_dir="$COMPONENT_BACKUP_DIR/$component"
+  mkdir -p "$component_dir"
+  find "$component_dir" -mindepth 1 -maxdepth 1 -type d \
     -name "pre-update-$component-*" -print |
     sort -r >"$list"
   retained=0
@@ -236,7 +943,7 @@ prune_automatic_backups() {
     retained=$((retained + 1))
     [ "$retained" -le 5 ] && continue
     case "$backup" in
-      "$BACKUP_DIR"/pre-update-"$component"-*) rm -rf "$backup" ;;
+      "$component_dir"/pre-update-"$component"-*) rm -rf "$backup" ;;
       *) rm -f "$list"; die "refusing to prune unexpected backup path" ;;
     esac
   done <"$list"
@@ -245,15 +952,27 @@ prune_automatic_backups() {
 component_restore_cmd() {
   component=$1 target=$2
   validate_component "$component"
+  target=$(validated_backup_path "$target")
+  verify_component_backup "$component" "$target" || return 1
   archive="$target/$(component_archive_name "$component")"
-  [ -f "$archive" ] && [ -f "$target/image" ] || die "invalid $component backup"
   service=$(component_service "$component")
   key=$(component_env_key "$component")
-  dc stop "$service"
-  restore_volume "$(component_volume "$component")" "$archive"
-  set_env "$key" "$(cat "$target/image")"
-  dc up -d --no-deps "$service"
-  component_health "$component" || die "$component restore health check failed"
+  dc stop "$service" || return 1
+  restore_volume "$(component_volume "$component")" "$archive" || return 1
+  if [ "$component" = proxyhub ] && [ -f "$target/proxyhub.env" ]; then
+    restore_env_temp="$ENV_FILE.restore.$$"
+    cp "$target/proxyhub.env" "$restore_env_temp" || return 1
+    chmod 600 "$restore_env_temp" || return 1
+    mv "$restore_env_temp" "$ENV_FILE" || return 1
+  fi
+  set_env "$key" "$(cat "$target/image")" || return 1
+  if [ "$component" = proxyhub ]; then
+    restore_proxyhub_assets "$target" || return 1
+  fi
+  dc up -d --no-deps "$service" || return 1
+  component_health "$component" || return 1
+  write_component_state "$component" \
+    "$(cat "$target/image")" restored "$target" || return 1
 }
 validate_image() {
   component=$1 image=$2
@@ -361,11 +1080,66 @@ confirm_update() {
 }
 
 perform_update() {
-  component=$1 image=$2
-  snapshot=$(component_backup_cmd "$component" "pre-update-$component-$(now)")
+  component=$1 image=$2 candidate=${3:-$2}
+  current=$(get_env "$(component_env_key "$component")" \
+    "$(component_default_image "$component")")
+  operation_begin "$component" update "$current" "$image"
+  if [ "$component" = proxyhub ]; then
+    OPERATION_ASSET_SOURCE=$(current_asset_revision)
+    operation_phase asset_stage
+    if ! prepare_proxyhub_assets_guarded "$candidate"; then
+      OPERATION_FAILED_PHASE=asset_stage
+      operation_finish failed assets_rejected
+      return 1
+    fi
+    OPERATION_ASSET_TARGET=$ASSET_TARGET_REVISION
+  fi
+  operation_phase backup
+  if ! snapshot=$(component_backup_cmd "$component" "pre-update-$component-$(now)"); then
+    OPERATION_FAILED_PHASE=backup
+    operation_finish failed backup_failed
+    return 1
+  fi
+  OPERATION_BACKUP=$snapshot
   mkdir -p "$STATE_DIR"
-  printf '%s\n' "$snapshot" >"$STATE_DIR/$component-last-backup"
-  set_env "$(component_env_key "$component")" "$image"
+  atomic_write "$STATE_DIR/$component-last-backup" "$snapshot"
+  operation_phase apply
+  if [ "$component" = proxyhub ] && [ -n "$ASSET_STAGE" ]; then
+    if ! switch_proxyhub_assets "$ASSET_STAGE/candidate"; then
+      echo "ProxyHub asset switch failed; rolling back" >&2
+      OPERATION_FAILED_PHASE=asset_apply
+      operation_phase rollback
+      if component_restore_cmd proxyhub "$snapshot"; then
+        operation_finish failed rolled_back
+      else
+        operation_finish failed rollback_failed
+      fi
+      return 1
+    fi
+    if ! merge_environment_template \
+      "$ASSET_STAGE/candidate/.env.example"; then
+      echo "ProxyHub environment schema update failed; rolling back" >&2
+      OPERATION_FAILED_PHASE=environment_schema
+      operation_phase rollback
+      if component_restore_cmd proxyhub "$snapshot"; then
+        operation_finish failed rolled_back
+      else
+        operation_finish failed rollback_failed
+      fi
+      return 1
+    fi
+  fi
+  if ! set_env "$(component_env_key "$component")" "$image"; then
+    echo "$component environment update failed; rolling back" >&2
+    OPERATION_FAILED_PHASE=environment_apply
+    operation_phase rollback
+    if component_restore_cmd "$component" "$snapshot"; then
+      operation_finish failed rolled_back
+    else
+      operation_finish failed rollback_failed
+    fi
+    return 1
+  fi
   update_failed=false
   if [ "$component" = proxyhub ]; then
     dc pull proxyhub &&
@@ -378,9 +1152,17 @@ perform_update() {
   fi
   if [ "$update_failed" = true ]; then
     echo "$component update failed; rolling back" >&2
-    component_restore_cmd "$component" "$snapshot"
+    OPERATION_FAILED_PHASE=apply
+    operation_phase rollback
+    if component_restore_cmd "$component" "$snapshot"; then
+      operation_finish failed rolled_back
+    else
+      operation_finish failed rollback_failed
+    fi
     return 1
   fi
+  write_component_state "$component" "$image" updated "$snapshot"
+  operation_finish success none
   echo "$component update successful. Rollback point: $snapshot"
 }
 
@@ -412,7 +1194,7 @@ legacy_update_cmd() {
     echo "$component is already current: $target"
     return
   fi
-  perform_update "$component" "$target"
+  perform_update "$component" "$target" "$image"
 }
 
 update_cmd() {
@@ -439,19 +1221,43 @@ update_cmd() {
     "$(component_default_image "$component")")
   echo "Candidate: $candidate"
   echo "Resolved:  $target"
-  if current_image_matches_target "$component" "$current" "$target"; then
+  asset_update_required=false
+  if [ "$component" = proxyhub ]; then
+    case "$candidate" in
+      ghcr.io/miozen/proxyhub:v*)
+        candidate_revision=${candidate##*:}
+        candidate_revision=${candidate_revision#v}
+        [ "$(current_asset_revision)" = "$candidate_revision" ] ||
+          asset_update_required=true
+        ;;
+    esac
+  fi
+  if current_image_matches_target "$component" "$current" "$target" &&
+    [ "$asset_update_required" = false ]; then
     echo "$component is already current: $target"
     return
   fi
   confirm_update "$component" "$current" "$target" "$assume_yes"
-  perform_update "$component" "$target"
+  perform_update "$component" "$target" "$candidate"
 }
 rollback_cmd() {
   component=${1:-}
   validate_component "$component"
   state="$STATE_DIR/$component-last-backup"
   [ -f "$state" ] || die "no $component rollback point"
-  component_restore_cmd "$component" "$(cat "$state")"
+  target=$(cat "$state")
+  current=$(get_env "$(component_env_key "$component")" \
+    "$(component_default_image "$component")")
+  operation_begin "$component" rollback "$current" unknown "$target"
+  operation_phase restore
+  if component_restore_cmd "$component" "$target"; then
+    OPERATION_TARGET=$(get_env "$(component_env_key "$component")" unknown)
+    operation_finish success none
+  else
+    OPERATION_FAILED_PHASE=restore
+    operation_finish failed restore_failed
+    return 1
+  fi
 }
 check_updates_cmd() {
   ensure_env
@@ -533,6 +1339,44 @@ lifecycle_cmd() {
     status) dc ps "$component" ;;
   esac
 }
+component_health_report() {
+  component=$1
+  container=stopped self=unhealthy dependency=not_applicable overall=unhealthy
+  [ -n "$(dc ps -q "$component")" ] && container=running
+  previous_attempts=${PROXYHUB_HEALTH_ATTEMPTS:-}
+  PROXYHUB_HEALTH_ATTEMPTS=1
+  if [ "$container" = running ] && component_self_health "$component"; then
+    self=healthy
+  fi
+  if [ "$component" = proxyhub ]; then
+    dependency=unhealthy
+    if [ "$container" = running ] && dependency_health; then
+      dependency=healthy
+    fi
+  fi
+  PROXYHUB_HEALTH_ATTEMPTS=$previous_attempts
+  if [ "$container" = running ] && [ "$self" = healthy ] &&
+    { [ "$component" != proxyhub ] || [ "$dependency" = healthy ]; }; then
+    overall=healthy
+  fi
+  echo "$component container=$container self=$self dependency=$dependency overall=$overall"
+}
+status_cmd() {
+  requested=${1:-all}
+  [ "$#" -le 1 ] || die "status accepts at most one scope"
+  case "$requested" in
+    all)
+      dc ps
+      component_health_report proxyhub
+      component_health_report sub-store
+      ;;
+    proxyhub|sub-store)
+      dc ps "$requested"
+      component_health_report "$requested"
+      ;;
+    *) die "scope must be all, proxyhub or sub-store" ;;
+  esac
+}
 logs_cmd() {
   component=${1:-}
   case "$component" in
@@ -542,17 +1386,268 @@ logs_cmd() {
   esac
 }
 
-command=${1:-help}; shift || true
+doctor_cmd() {
+  ensure_env
+  failed=false
+  echo "ProxyHub diagnostics"
+  if command -v docker >/dev/null 2>&1 &&
+    docker info >/dev/null 2>&1; then
+    echo "[OK] Docker daemon is available"
+  else
+    echo "[FAIL] Docker daemon is unavailable"
+    failed=true
+  fi
+  if docker compose version >/dev/null 2>&1 &&
+    dc config --quiet >/dev/null 2>&1; then
+    echo "[OK] Compose configuration is valid"
+  else
+    echo "[FAIL] Compose configuration is invalid"
+    failed=true
+  fi
+  if [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]; then
+    echo "[OK] state directory is available"
+  else
+    echo "[FAIL] state directory is unavailable"
+    failed=true
+  fi
+  if [ -d "$LOCK_DIR" ]; then
+    echo "[WARN] a lifecycle operation lock is present"
+  else
+    echo "[OK] no lifecycle operation lock is present"
+  fi
+  component_health_report proxyhub || failed=true
+  component_health_report sub-store || failed=true
+  [ "$failed" = false ]
+}
+
+print_help() {
+  cat <<'EOF'
+Usage: proxyhub [menu]
+       proxyhub {status|start|stop|restart} [all|proxyhub|sub-store]
+       proxyhub logs [all|proxyhub|sub-store] [--tail=N] [-f]
+       proxyhub check-updates [all|proxyhub|sub-store]
+       proxyhub update <proxyhub|sub-store> [--version X|--image I] [--yes]
+       proxyhub rollback <proxyhub|sub-store>
+       proxyhub backup [all|proxyhub|sub-store] [name]
+       proxyhub restore <backup-path>
+       proxyhub doctor
+       proxyhub uninstall
+EOF
+}
+
+menu_require_tty() {
+  [ -t 0 ] && [ -t 1 ] ||
+    die "menu requires an interactive terminal; run proxyhub help"
+}
+
+menu_read() {
+  menu_prompt=$1
+  printf '%s' "$menu_prompt"
+  IFS= read -r MENU_REPLY || return 1
+}
+
+menu_pause() {
+  menu_read "Press Enter to continue..." || return 1
+}
+
+menu_safe_text() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_./:@-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+menu_command() {
+  printf '\nCommand: proxyhub'
+  for menu_arg in "$@"; do
+    printf ' %s' "$menu_arg"
+  done
+  printf '\n\n'
+  "$SCRIPT" "$@" || {
+    menu_status=$?
+    echo "Command failed with exit code $menu_status."
+    return "$menu_status"
+  }
+}
+
+menu_component_row() {
+  menu_component=$1
+  if [ -n "$(dc ps -q "$menu_component")" ]; then
+    menu_state=running
+  else
+    menu_state=stopped
+  fi
+  menu_image=$(get_env "$(component_env_key "$menu_component")" unknown)
+  printf '%-14s %-10s %-48s %s\n' \
+    "$menu_component" "$menu_state" "$menu_image" "not checked"
+}
+
+component_menu() {
+  menu_component=$1
+  while :; do
+    echo
+    echo "$menu_component management"
+    echo "1. Status"
+    echo "2. Check update"
+    echo "3. Update latest stable"
+    echo "4. Update selected version"
+    echo "5. Rollback last update"
+    echo "6. Start"
+    echo "7. Stop"
+    echo "8. Restart"
+    echo "9. Logs (last 100 lines)"
+    echo "10. Manual component backup"
+    echo "0. Back"
+    menu_read "Select: " || return 0
+    case "$MENU_REPLY" in
+      1) menu_command status "$menu_component"; menu_pause || return 0 ;;
+      2) menu_command check-updates "$menu_component"; menu_pause || return 0 ;;
+      3) menu_command update "$menu_component"; menu_pause || return 0 ;;
+      4)
+        menu_read "Version: " || return 0
+        menu_safe_text "$MENU_REPLY" || {
+          echo "Invalid version; no action was run."
+          continue
+        }
+        menu_version=$MENU_REPLY
+        menu_command update "$menu_component" --version "$menu_version"
+        menu_pause || return 0
+        ;;
+      5) menu_command rollback "$menu_component"; menu_pause || return 0 ;;
+      6) menu_command start "$menu_component"; menu_pause || return 0 ;;
+      7) menu_command stop "$menu_component"; menu_pause || return 0 ;;
+      8) menu_command restart "$menu_component"; menu_pause || return 0 ;;
+      9)
+        menu_command logs "$menu_component" --tail=100
+        menu_pause || return 0
+        ;;
+      10)
+        menu_command backup "$menu_component"
+        menu_pause || return 0
+        ;;
+      0) return 0 ;;
+      *) echo "Invalid selection; no action was run." ;;
+    esac
+  done
+}
+
+backup_menu() {
+  while :; do
+    echo
+    echo "Backup and restore"
+    echo "1. Backup all components"
+    echo "2. Backup ProxyHub"
+    echo "3. Backup Sub-Store"
+    echo "4. Restore a managed backup path"
+    echo "0. Back"
+    menu_read "Select: " || return 0
+    case "$MENU_REPLY" in
+      1) menu_command backup all; menu_pause || return 0 ;;
+      2) menu_command backup proxyhub; menu_pause || return 0 ;;
+      3) menu_command backup sub-store; menu_pause || return 0 ;;
+      4)
+        menu_read "Managed backup path: " || return 0
+        menu_safe_text "$MENU_REPLY" || {
+          echo "Invalid backup path; no action was run."
+          continue
+        }
+        menu_backup_path=$MENU_REPLY
+        menu_read "Run restore? [y/N] " || return 0
+        case "$MENU_REPLY" in
+          y|Y|yes|YES)
+            menu_command restore "$menu_backup_path"
+            menu_pause || return 0
+            ;;
+          *) echo "Restore cancelled." ;;
+        esac
+        ;;
+      0) return 0 ;;
+      *) echo "Invalid selection; no action was run." ;;
+    esac
+  done
+}
+
+logs_menu() {
+  echo
+  echo "Logs"
+  echo "1. All components"
+  echo "2. ProxyHub"
+  echo "3. Sub-Store"
+  echo "0. Back"
+  menu_read "Select: " || return 0
+  case "$MENU_REPLY" in
+    1) menu_command logs --tail=100 ;;
+    2) menu_command logs proxyhub --tail=100 ;;
+    3) menu_command logs sub-store --tail=100 ;;
+    0) return 0 ;;
+    *) echo "Invalid selection; no action was run." ;;
+  esac
+  menu_pause || return 0
+}
+
+management_menu() {
+  # Output is always plain text, so NO_COLOR and non-ANSI terminals need no
+  # alternate rendering path.
+  : "${NO_COLOR:=}"
+  menu_require_tty
+  ensure_env
+  trap 'printf "\n"; exit 0' HUP INT TERM
+  while :; do
+    echo
+    echo "ProxyHub management"
+    echo
+    printf '%-14s %-10s %-48s %s\n' \
+      "Component" "State" "Version / image" "Update"
+    menu_component_row proxyhub
+    menu_component_row sub-store
+    echo
+    echo "1. ProxyHub"
+    echo "2. Sub-Store"
+    echo "3. Check updates"
+    echo "4. Backup and restore"
+    echo "5. Logs"
+    echo "6. Diagnostics"
+    echo "0. Exit"
+    menu_read "Select: " || return 0
+    case "$MENU_REPLY" in
+      1) component_menu proxyhub ;;
+      2) component_menu sub-store ;;
+      3) menu_command check-updates; menu_pause || return 0 ;;
+      4) backup_menu ;;
+      5) logs_menu ;;
+      6) menu_command doctor; menu_pause || return 0 ;;
+      0) return 0 ;;
+      *) echo "Invalid selection; no action was run." ;;
+    esac
+  done
+}
+
+if [ "$#" -eq 0 ]; then
+  if [ -t 0 ] && [ -t 1 ]; then
+    management_menu
+  else
+    print_help
+  fi
+  exit 0
+fi
+
+command=$1; shift
 case "$command" in
-  install) install_cmd "$@" ;;
-  start|stop|restart|status) ensure_env; lifecycle_cmd "$command" "$@" ;;
+  menu) [ "$#" -eq 0 ] || die "menu accepts no options"; management_menu ;;
+  install) acquire_lock install; install_cmd "$@" ;;
+  start|stop|restart)
+    ensure_env; acquire_lock "$command ${1:-all}"; lifecycle_cmd "$command" "$@"
+    ;;
+  status) ensure_env; status_cmd "$@" ;;
   logs) ensure_env; logs_cmd "$@" ;;
-  backup) backup_cmd "${1:-}" ;;
-  restore) restore_cmd "${1:-}" ;;
-  update) update_cmd "$@" ;;
+  backup) ensure_env; acquire_lock "backup ${1:-all}"; backup_cmd "$@" ;;
+  restore) ensure_env; acquire_lock restore; restore_cmd "$@" ;;
+  update) ensure_env; acquire_lock "update ${1:-}"; update_cmd "$@" ;;
   check-updates) check_updates_cmd "$@" ;;
-  rollback) rollback_cmd "$@" ;;
-  uninstall) uninstall_cmd "$@" ;;
-  help|-h|--help) echo "Usage: proxyhub {install|start|stop|restart|status|logs|backup|restore|check-updates|update|rollback|uninstall} [proxyhub|sub-store]" ;;
+  rollback) ensure_env; acquire_lock "rollback ${1:-}"; rollback_cmd "$@" ;;
+  doctor) [ "$#" -eq 0 ] || die "doctor accepts no options"; doctor_cmd ;;
+  uninstall) acquire_lock uninstall; uninstall_cmd "$@" ;;
+  help|-h|--help) print_help ;;
   *) die "unknown command: $command" ;;
 esac
+

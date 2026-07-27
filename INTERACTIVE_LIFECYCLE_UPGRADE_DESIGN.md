@@ -484,6 +484,9 @@ Acceptance:
 
 ### I2 - Lifecycle foundation
 
+Status: CODE_COMPLETE on `dev`; automated evidence is recorded in
+`I2_ACCEPTANCE_EVIDENCE.md`. Real-host acceptance remains assigned to I6.
+
 - I2.1 add the allow-listed operation lock;
 - I2.2 add atomic operation/component state;
 - I2.3 expose `all|proxyhub|sub-store` backup scopes;
@@ -501,6 +504,9 @@ Acceptance:
 
 ### I3 - Semi-interactive installation
 
+Status: CODE_COMPLETE on `dev`; automated evidence is recorded in
+`I3_ACCEPTANCE_EVIDENCE.md`. Real-host acceptance remains assigned to I6.
+
 - I3.1 formalize TTY/non-TTY mode selection;
 - I3.2 add read-only preflight reporting;
 - I3.3 use `PORT_EXPLICIT` to ask only when necessary;
@@ -517,6 +523,9 @@ Acceptance:
 - cancellation before confirmation leaves no managed state.
 
 ### I4 - SSH terminal menu
+
+Status: CODE_COMPLETE on `dev`; automated PTY evidence is recorded in
+`I4_ACCEPTANCE_EVIDENCE.md`. The real SSH walkthrough remains assigned to I6.
 
 - I4.1 add bare-command TTY detection and `menu`;
 - I4.2 add home/component/backup/log/diagnostic menus;

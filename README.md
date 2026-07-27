@@ -4,7 +4,7 @@ ProxyHub 是部署在 VPS 或内网虚拟机上的 sing-box 配置与 Sub-Store
 统一管理平台。ProxyHub 负责用户、模板和 sing-box 配置组装；节点订阅、
 转换、同步及其备份恢复继续使用 Sub-Store 原生能力。
 
-当前稳定版本：`v0.1.5`
+当前稳定版本：`v0.1.6`
 
 ## 功能
 
@@ -51,9 +51,14 @@ chmod +x /tmp/proxyhub-install.sh
 /tmp/proxyhub-install.sh
 ```
 
-安装器会校验系统、架构、Release SHA256 和镜像架构。ProxyHub 使用当前
-稳定 Release；Sub-Store 默认从官方 `xream/sub-store:latest` 发现稳定
-镜像，然后把不可变 digest 写入配置，运行时不会保留 `:latest`。
+TTY 中安装器采用默认优先的半交互流程：未传 `--port` 时询问端口（默认
+`3000`），完成只读检查和镜像解析后展示最终摘要，干净安装以 `[Y/n]`
+确认。它只询问端口、缺失的 Docker/Compose 或宿主机工具，以及最终确认。
+
+安装器会校验系统、架构、Release SHA256、磁盘、端口和镜像架构。
+ProxyHub 使用当前稳定 Release；Sub-Store 默认从官方
+`xream/sub-store:latest` 发现稳定镜像，然后把两个组件的不可变 digest
+写入配置。
 
 安装完成后访问 `http://服务器IP:3000/`。首次注册用户成为 owner。
 
@@ -69,9 +74,14 @@ chmod +x /tmp/proxyhub-install.sh
 # 明确固定 Sub-Store 版本
 /tmp/proxyhub-install.sh --substore-version 2.36.21
 
-# 非交互确认安装主机依赖
+# 非交互/自动化：使用默认值且绝不等待输入
 /tmp/proxyhub-install.sh --yes
 ```
+
+非 TTY 执行不会读取输入。需要确认的干净安装若未传 `--yes` 会退出并提示
+重新执行；默认端口被占用时会提示使用
+`--port <available-port> --yes`。TTY 中可直接重新输入可用端口。最终确认
+前不会创建 ProxyHub 的受管目录、配置或数据卷。
 
 安装只接受干净主机。检测到现有 ProxyHub 状态时会拒绝覆盖，应使用
 `proxyhub update`。若确实需要删除全部旧数据并重新安装：
@@ -96,6 +106,20 @@ Docker 数据卷，再创建全新实例；它不是升级，也没有回滚保�
 
 ## 日常维护
 
+SSH 登录宿主机后直接运行：
+
+```sh
+proxyhub
+# 或
+proxyhub menu
+```
+
+TTY 中会打开行式管理菜单；裸命令在非 TTY 中只打印帮助，绝不等待输入。
+菜单打开时不会联网检查更新，只有选择“检查更新”后才访问上游。菜单中的
+变更项会先显示等价的非交互命令，再调用同一 CLI 命令路由；它不会启动
+额外的 SSH 服务、管理容器或挂载 Docker Socket。`NO_COLOR` 和非 ANSI
+终端使用相同的纯文本输出，EOF 或 Ctrl+C 会安全退出。
+
 ```sh
 # 状态
 proxyhub status
@@ -118,6 +142,9 @@ proxyhub logs sub-store -f
 proxyhub check-updates
 proxyhub check-updates proxyhub
 proxyhub check-updates sub-store
+
+# 只读诊断
+proxyhub doctor
 ```
 
 两个容器日志均由 Docker 限制为每份 `5MB`、最多 `3` 份。配置生成记录
@@ -158,13 +185,23 @@ digest 与当前相同会直接成功退出，不重启容器。每个组件自�
 proxyhub backup
 proxyhub backup before-change
 
+# 仅备份一个组件
+proxyhub backup proxyhub before-proxyhub-change
+proxyhub backup sub-store before-substore-change
+
 # 完整恢复
-proxyhub restore /var/lib/proxyhub/backups/before-change
+proxyhub restore /var/lib/proxyhub/backups/full/before-change
+
+# 恢复单组件备份时只重建对应组件
+proxyhub restore \
+  /var/lib/proxyhub/backups/components/sub-store/before-substore-change
 ```
 
-内部备份位于 `/var/lib/proxyhub/backups/`。完整恢复会覆盖当前两个组件
-的数据。需要跨机器或卸载后恢复时，应先把备份复制到 ProxyHub 管理
-目录之外；彻底卸载会删除内部备份。
+内部备份位于 `/var/lib/proxyhub/backups/`。新备份包含类型、组件和
+SHA256 校验信息，恢复前会验证。完整恢复会覆盖当前两个组件的数据；
+组件恢复只停止、恢复并重建对应组件。为了防止路径替换，CLI 只恢复
+受管备份目录内的备份。需要跨机器恢复时，应先把备份安全复制回该目录；
+彻底卸载会删除内部备份。
 
 Sub-Store 前端自身的备份/恢复仍使用 Sub-Store 原生格式和逻辑。
 
@@ -224,6 +261,9 @@ curl -fsS http://127.0.0.1:3000/healthz
 - [安全说明](SECURITY.md)
 - [稳定生命周期设计](STABILITY_LIFECYCLE_DESIGN.md)
 - [交互式生命周期升级设计](INTERACTIVE_LIFECYCLE_UPGRADE_DESIGN.md)
+- [I2 生命周期基础验收证据](I2_ACCEPTANCE_EVIDENCE.md)
+- [I3 半交互安装验收证据](I3_ACCEPTANCE_EVIDENCE.md)
+- [I4 SSH 终端菜单验收证据](I4_ACCEPTANCE_EVIDENCE.md)
 
 正式镜像和安装资产仅由 `v*` 标签触发发布。`dev` 分支的镜像工作流只
 允许手动触发。

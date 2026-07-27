@@ -53,6 +53,52 @@ test('F4 stores and restores independent rollback points', () => {
   assert.doesNotMatch(source, /\$STATE_DIR\/last-backup/);
 });
 
+test('I2 serializes mutations with an allow-listed recoverable operation lock', () => {
+  assert.match(source, /DEFAULT_LOCK_DIR=\/run\/lock\/proxyhub\.lock/);
+  assert.match(source, /acquire_lock\(\)/);
+  assert.match(source, /kill -0 "\$owner_pid"/);
+  assert.match(source, /operation locked by PID/);
+  assert.match(source, /operation lock must not be a symbolic link/);
+  assert.match(source, /operation lock is not a valid stale ProxyHub lock/);
+  assert.match(source, /trap 'release_lock' EXIT/);
+  assert.doesNotMatch(source, /rm -rf "\$LOCK_DIR"/);
+});
+
+test('I2 records atomic component and operation state without eval', () => {
+  assert.match(source, /atomic_write\(\)/);
+  assert.match(source, /mv "\$temp" "\$output"/);
+  assert.match(source, /chmod 600 "\$temp"/);
+  assert.match(source, /operation_begin\(\)/);
+  assert.match(source, /operation_phase\(\)/);
+  assert.match(source, /operation_finish\(\)/);
+  assert.match(source, /failed_phase=\$OPERATION_FAILED_PHASE/);
+  assert.match(source, /write_component_state\(\)/);
+  assert.doesNotMatch(source, /\beval\b/);
+});
+
+test('I2 exposes all and component backup scopes with verified metadata', () => {
+  assert.match(source, /FULL_BACKUP_DIR="\$BACKUP_DIR\/full"/);
+  assert.match(source, /COMPONENT_BACKUP_DIR="\$BACKUP_DIR\/components"/);
+  assert.match(source, /backup scope must be all, proxyhub or sub-store/);
+  assert.match(source, /write_backup_metadata\(\)/);
+  assert.match(source, /write_backup_checksums\(\)/);
+  assert.match(source, /sha256sum -c SHA256SUMS/);
+  assert.match(source, /validate_image proxyhub "\$proxyhub_image"/);
+  assert.match(source, /validate_image sub-store "\$substore_image"/);
+  assert.match(source, /backup component mismatch/);
+  assert.match(source, /backup path must remain under/);
+});
+
+test('I2 separates component self-health from dependency health', () => {
+  assert.match(source, /proxyhub_self_health\(\)/);
+  assert.match(source, /substore_self_health\(\)/);
+  assert.match(source, /dependency_health\(\)/);
+  assert.match(source, /3000\/api\/utils\/env/);
+  assert.match(source, /127\.0\.0\.1:3001/);
+  assert.match(source, /container=\$container self=\$self dependency=\$dependency overall=\$overall/);
+  assert.doesNotMatch(source, /r\.status<500/);
+});
+
 test('O1 publishes and verifies amd64 and arm64 image manifests', () => {
   assert.match(imageWorkflow, /docker\/setup-qemu-action@v3/);
   assert.match(imageWorkflow, /platforms:\s*linux\/amd64,linux\/arm64/);
