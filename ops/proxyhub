@@ -518,6 +518,23 @@ prepare_proxyhub_assets() {
   ASSET_TARGET_REVISION=$release_version
 }
 
+prepare_proxyhub_assets_guarded() {
+  candidate=$1
+  ASSET_STAGE=
+  ASSET_TARGET_REVISION=none
+  case "$candidate" in
+    ghcr.io/miozen/proxyhub:v*)
+      release_tag=${candidate##*:}
+      ASSET_STAGE="$STATE_DIR/asset-stage-$$"
+      ASSET_TARGET_REVISION=${release_tag#v}
+      ;;
+  esac
+  (
+    trap - 0 HUP INT TERM
+    prepare_proxyhub_assets "$candidate"
+  )
+}
+
 switch_proxyhub_assets() {
   asset_dir=$1
   for asset_name in compose.yaml .env.example proxyhub VERSION \
@@ -1076,7 +1093,7 @@ perform_update() {
   if [ "$component" = proxyhub ]; then
     OPERATION_ASSET_SOURCE=$(current_asset_revision)
     operation_phase asset_stage
-    if ! prepare_proxyhub_assets "$candidate"; then
+    if ! prepare_proxyhub_assets_guarded "$candidate"; then
       OPERATION_FAILED_PHASE=asset_stage
       operation_finish failed assets_rejected
       return 1
