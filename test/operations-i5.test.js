@@ -89,7 +89,7 @@ if [ "$FAIL_HEALTH_ONCE" = 1 ]; then
   [ ! -f "$HEALTH_COUNT" ] || count=$(cat "$HEALTH_COUNT")
   count=$((count + 1))
   echo "$count" >"$HEALTH_COUNT"
-  [ "$count" -ne 2 ] || exit 1
+  [ "$count" -ne 3 ] || exit 1
 fi
 printf '%s\\n' '{"status":"ok","checks":{"database":"ok","substore":{"reachable":true}}}'
 `, { mode: 0o755 });
