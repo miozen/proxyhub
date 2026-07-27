@@ -16,7 +16,7 @@ function fixture(context) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-i2-'));
   const bin = path.join(root, 'bin');
   const data = path.join(root, 'data');
-  const state = path.join(data, 'state');
+  const state = path.join(root, '.proxyhub');
   const log = path.join(root, 'docker.log');
   fs.mkdirSync(bin, { recursive: true });
   fs.mkdirSync(state, { recursive: true });
@@ -117,7 +117,7 @@ test('I2 creates a checksummed component backup without stopping the other servi
   const f = fixture(context);
   const result = f.run('backup', 'proxyhub', 'unit');
   assert.equal(result.status, 0, result.stderr);
-  const backup = path.join(f.data, 'backups', 'components', 'proxyhub', 'unit');
+  const backup = path.join(f.root, 'backups', 'components', 'proxyhub', 'unit');
   assert.match(fs.readFileSync(path.join(backup, 'metadata'), 'utf8'), /type=component/);
   assert.match(fs.readFileSync(path.join(backup, 'metadata'), 'utf8'), /component=proxyhub/);
   assert.ok(fs.existsSync(path.join(backup, 'SHA256SUMS')));
@@ -134,7 +134,7 @@ test('I2 refuses a component restore after checksum tampering', {
   let result = f.run('backup', 'sub-store', 'tamper');
   assert.equal(result.status, 0, result.stderr);
   const backup = path.join(
-    f.data, 'backups', 'components', 'sub-store', 'tamper'
+    f.root, 'backups', 'components', 'sub-store', 'tamper'
   );
   fs.appendFileSync(path.join(backup, 'substore-data.tgz'), 'changed');
   fs.writeFileSync(f.log, '');
