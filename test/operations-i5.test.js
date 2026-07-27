@@ -29,7 +29,8 @@ const buildCommand = new URL(
 function managedUpdateFixture(context, {
   failInstallOnce = false,
   failHealthOnce = false,
-  incompleteArchive = false
+  incompleteArchive = false,
+  legacyAssets = false
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-i5-update-'));
   const deploy = path.join(root, 'deploy');
@@ -72,15 +73,17 @@ function managedUpdateFixture(context, {
   fs.writeFileSync(path.join(deploy, 'compose.yaml'), 'services: {}\n');
   fs.writeFileSync(path.join(deploy, '.env.example'), 'PORT=3000\n', { mode: 0o600 });
   fs.writeFileSync(path.join(deploy, 'VERSION'), '0.1.5\n');
-  fs.writeFileSync(path.join(deploy, 'compatibility.json'), JSON.stringify({
-    schema: 1,
-    proxyhub_version: '0.1.5',
-    manager_min_version: '0.1.5',
-    compose_revision: 1,
-    environment_revision: 1,
-    substore_min_version: null,
-    substore_max_version_exclusive: null
-  }, null, 2));
+  if (!legacyAssets) {
+    fs.writeFileSync(path.join(deploy, 'compatibility.json'), JSON.stringify({
+      schema: 1,
+      proxyhub_version: '0.1.5',
+      manager_min_version: '0.1.5',
+      compose_revision: 1,
+      environment_revision: 1,
+      substore_min_version: null,
+      substore_max_version_exclusive: null
+    }, null, 2));
+  }
   const cli = path.join(deploy, 'proxyhub');
   fs.copyFileSync(command, cli);
   fs.chmodSync(cli, 0o755);
@@ -464,3 +467,28 @@ test('I5 injected ProxyHub health failure restores the complete rollback point',
   assert.match(environment, /PROXYHUB_IMAGE=ghcr\.io\/miozen\/proxyhub@sha256:old/);
   assert.match(environment, /SUBSTORE_IMAGE=xream\/sub-store@sha256:unchanged/);
 });
+
+test('I5 rollback preserves absence of compatibility manifest in legacy assets', {
+  skip: process.platform === 'win32'
+}, (context) => {
+  const fixture = managedUpdateFixture(context, {
+    failHealthOnce: true,
+    legacyAssets: true
+  });
+  assert.equal(
+    fs.existsSync(path.join(fixture.deploy, 'compatibility.json')),
+    false
+  );
+  const result = fixture.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /update failed; rolling back/);
+  assert.equal(
+    fs.existsSync(path.join(fixture.deploy, 'compatibility.json')),
+    false
+  );
+  assert.equal(
+    fs.readFileSync(path.join(fixture.deploy, 'VERSION'), 'utf8').trim(),
+    '0.1.5'
+  );
+});
+
