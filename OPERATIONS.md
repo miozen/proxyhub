@@ -1,70 +1,77 @@
 # 运维与恢复
 
-## SSH 终端菜单
+README 提供常用操作，本文件补充宿主机维护边界和故障处理。
+
+## SSH 管理菜单
 
 ```sh
 proxyhub
 proxyhub menu
 ```
 
-只有 stdin 和 stdout 都是 TTY 时才打开菜单；非 TTY 裸命令打印帮助，
-显式 `menu` 则快速失败。菜单包含 ProxyHub、Sub-Store、更新检查、备份
-恢复、日志和 `doctor` 诊断入口。打开主页不会执行远程更新检查。
+菜单与命令行使用同一套操作、锁、备份和回滚逻辑。非交互脚本应使用后续
+明确命令，不要依赖菜单输入。
 
-菜单的变更动作先显示 `proxyhub ...` 等价命令，再以子进程调用同一公开
-CLI 路由，因此继续使用相同的操作锁、备份、健康检查和失败返回码。无效
-输入、EOF 和 Ctrl+C 不执行变更。输出始终为纯文本，兼容 `NO_COLOR`、
-窄终端和非 ANSI SSH 会话；菜单不显示密钥、Token、订阅 URL 或完整环境
-文件。
-
-## 组件控制
+## 状态、诊断和日志
 
 ```sh
 proxyhub status
 proxyhub status proxyhub
 proxyhub status sub-store
-proxyhub start proxyhub
-proxyhub stop sub-store
-proxyhub restart proxyhub
+proxyhub doctor
+proxyhub logs
 proxyhub logs proxyhub --tail=100
 proxyhub logs sub-store -f
 ```
 
-不指定组件的 `start`、`stop`、`restart`、`status` 和 `logs` 会操作或
-显示两个组件。指定组件时只操作该容器。
+状态分别报告容器、组件健康、依赖健康和整体就绪状态。Sub-Store 健康检查
+同时检查后端和官方前端。
 
-## 更新
+## 组件控制
+
+```sh
+proxyhub start
+proxyhub stop
+proxyhub restart
+
+proxyhub start proxyhub
+proxyhub stop proxyhub
+proxyhub restart proxyhub
+
+proxyhub start sub-store
+proxyhub stop sub-store
+proxyhub restart sub-store
+```
+
+指定组件时只操作对应容器。
+
+## 更新与回滚
 
 ```sh
 proxyhub check-updates
+proxyhub check-updates proxyhub
+proxyhub check-updates sub-store
+
 proxyhub update proxyhub
 proxyhub update sub-store
-proxyhub update proxyhub --version 0.1.5
-proxyhub update sub-store --version 2.36.21
-proxyhub update proxyhub --image ghcr.io/miozen/proxyhub:<tag-or-digest>
-proxyhub update sub-store --image xream/sub-store:<tag-or-digest>
-```
 
-更新命令展示当前镜像、候选标签和目标 digest，并要求确认；自动化使用
-`--yes`。ProxyHub 从本仓库最新 Release 发现稳定版本，Sub-Store 从官方
-`xream/sub-store:latest` 发现稳定版本。解析后均固定为不可变 digest。
+proxyhub update proxyhub --version <VERSION>
+proxyhub update sub-store --version <SUBSTORE_VERSION>
 
-更新仅备份并重建所选组件。目标 digest 未变化时两个容器均不重启。
-拉取、重建或健康检查失败时自动恢复所选组件。手动回滚：
-
-```sh
 proxyhub rollback proxyhub
 proxyhub rollback sub-store
 ```
 
-每个组件保留最近 5 份自动更新前备份；手动备份不参与此清理。
+自动化更新增加 `--yes`。更新只备份、切换资产并重建所选组件。目标 digest
+未变化时不重启；拉取、切换、启动或健康检查失败时恢复该组件。
+
+每个组件保留最近 `5` 份自动更新前备份。手动命名备份不参与自动清理。
 
 ## 备份与恢复
 
 ```sh
-# 完整备份；省略 all 仍保持兼容
+# 完整备份
 proxyhub backup
-proxyhub backup before-change
 proxyhub backup all before-full-change
 
 # 单组件备份
@@ -72,64 +79,87 @@ proxyhub backup proxyhub before-proxyhub-change
 proxyhub backup sub-store before-substore-change
 
 # 恢复
-proxyhub restore /var/lib/proxyhub/backups/full/before-change
+proxyhub restore \
+  /var/lib/proxyhub/backups/full/before-full-change
 proxyhub restore \
   /var/lib/proxyhub/backups/components/sub-store/before-substore-change
 ```
 
-完整备份和恢复会短暂停止两个服务。单组件备份与恢复只操作指定服务，
-不会重建另一个容器。新备份包含受限元数据和 SHA256 校验，校验失败时
-恢复会在停止容器前拒绝。CLI 只接受 `/var/lib/proxyhub/backups/` 内的
-恢复路径；跨机器恢复需先将备份复制回该目录。卸载前需把要保留的备份
-复制到 `/var/lib/proxyhub` 之外。
+完整备份与恢复会操作两个组件；单组件操作不会重建另一个容器。恢复前验证
+备份类型、组件和 SHA256。CLI 只接受 `/var/lib/proxyhub/backups/` 内的
+恢复路径。
 
-所有有状态运维命令由 `/run/lock/proxyhub.lock` 串行化。锁会记录 PID、
-命令和开始时间；仍存活的持有者会阻止并发操作，只在确认 PID 已不存在
-后清理陈旧锁。`status`、`logs` 和 `check-updates` 保持只读且不获取锁。
+跨机器恢复时，先把备份复制回受管备份目录。卸载前需要长期保存的备份，
+必须先复制到 `/var/lib/proxyhub` 之外。
 
-`status` 现在分别报告容器状态、组件自身健康、依赖健康和总体就绪状态。
-Sub-Store 自身健康同时验证后端 `/api/utils/env` 和官方前端。
+## 并发操作
 
-## 安装边界
+有状态运维命令使用 `/run/lock/proxyhub.lock` 串行执行。仍在运行的操作会
+阻止第二个变更命令；确认原进程已结束后，CLI 才清理陈旧锁。
 
-- TTY 默认进入半交互安装：未指定时询问端口、只在依赖缺失时询问安装，
-  最后展示解析后的主机、URL、镜像 digest、容器、卷和路径摘要。
-- 干净安装确认是 `[Y/n]`；自动化必须使用 `--yes`，非 TTY 永不等待输入。
-- 默认端口占用时，TTY 可输入新端口；自动化必须显式传
-  `--port <available-port> --yes`。
-- 最终确认前不会创建 ProxyHub 受管目录、配置或数据卷。成功后以 `0600`
-  原子写入 `/var/lib/proxyhub/state/installation`。
-- 安装器只执行全新安装；发现任何受管状态即拒绝。
-- 数据保留升级只使用 `proxyhub update`。
-- 干净覆盖安装需要：
+`status`、`logs`、`doctor` 和 `check-updates` 是只读操作。
+
+## 已安装、残留与覆盖安装
+
+安装器检测以下任意状态：
+
+```text
+/opt/proxyhub
+/etc/proxyhub
+/var/lib/proxyhub
+/var/log/proxyhub
+/usr/local/bin/proxyhub
+proxyhub-proxyhub-1
+proxyhub-sub-store-1
+proxyhub_internal
+proxyhub-data
+proxyhub-substore-data
+```
+
+任何一项存在都会阻止普通安装。
+
+- 完整安装正常运行：使用 `proxyhub update`。
+- CLI 链接丢失但 `/opt/proxyhub/proxyhub` 存在：可先使用完整路径检查。
+- 旧版卸载仅留下配置或数据卷：保留数据时不要覆盖；不需要数据时使用
+  干净覆盖安装。
 
 ```sh
 PROXYHUB_REPLACE_CONFIRM=DELETE \
-  /tmp/proxyhub-install.sh --replace --yes
+  /tmp/proxyhub-install.sh \
+  --replace \
+  --yes
 ```
 
-覆盖安装会先校验资产和镜像，再永久删除全部受管状态并创建新实例。
+覆盖安装会永久删除全部受管状态并重新生成密钥，不是升级。
 
-## 卸载边界
+## 彻底卸载
 
 ```sh
 # 交互输入 DELETE
 proxyhub uninstall
 
-# 非交互
-PROXYHUB_UNINSTALL_CONFIRM=DELETE proxyhub uninstall
+# 自动化
+PROXYHUB_UNINSTALL_CONFIRM=DELETE \
+  proxyhub uninstall
 ```
 
-卸载永久删除 ProxyHub、Sub-Store、配置、密钥、内部备份、日志和两个
-Docker 数据卷，不提供保留受管数据的卸载模式。Docker、宿主机软件包、
-外部备份和镜像缓存不在删除范围。
+卸载永久删除 ProxyHub、Sub-Store、配置、密钥、内部备份、日志、容器、
+网络和两个 Docker 数据卷，不提供保留受管数据的模式。Docker、宿主机
+软件包、其他容器、镜像缓存和外部备份不在删除范围。
 
 ## 容量边界
 
 - 每个容器日志：`5MB × 3`。
-- 每用户生成记录：最近 10 次。
-- 每组件自动更新备份：最近 5 份。
+- 每用户生成记录：保留最近 `10` 次。
+- 每组件自动更新备份：保留最近 `5` 份。
 - 最近成功配置缓存独立保存，不受生成记录清理影响。
 
-恢复后应验证 `/healthz`、owner 登录、配置生成、Sub-Store 前端/后端、
-备份恢复及重启后持久化。完整命令见 [HOST_ACCEPTANCE.md](HOST_ACCEPTANCE.md)。
+## 恢复后检查
+
+```sh
+proxyhub status
+proxyhub doctor
+curl -fsS http://127.0.0.1:3000/healthz
+```
+
+随后验证 owner 登录、Sub-Store 前端、订阅测试和客户端配置生成。
