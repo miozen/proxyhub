@@ -1,11 +1,11 @@
-FROM node:22-alpine AS dependencies
+FROM node:22.23.2-alpine AS dependencies
 
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 RUN npm install --omit=dev
 
-FROM node:22-alpine
+FROM node:22.23.2-alpine
 
 ENV NODE_ENV=production
 WORKDIR /app
@@ -28,8 +28,3 @@ EXPOSE 3000
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "src/server.js"]
-
-
-
-
-
