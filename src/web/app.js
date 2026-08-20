@@ -20,12 +20,12 @@ createApp({
     subscriptionTests: {}, subscriptionBusy: {}, subscriptionToggles: {},
     subscriptionSaving: false, generationTesting: false, generationTestedAt: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
-    templateForm: { parent_id: null, source_type: 'local', source_url: '', content: '' },
+    templateForm: { id: null, name: '', content: '' },
     account: { username: '', currentPassword: '', newPassword: '' },
     nav: [
       { id: 'dashboard', label: '总览', icon: '◫' }, { id: 'subscriptions', label: '我的订阅', icon: '⌁' },
       { id: 'generation', label: '配置生成', icon: '⚡' }, { id: 'substore', label: 'Sub-Store', icon: '↻', owner: true },
-      { id: 'templates', label: '模板管理', icon: '◇', owner: true },
+      { id: 'templates', label: '模板管理', icon: '◇' },
       { id: 'users', label: '用户管理', icon: '♙', owner: true }, { id: 'system', label: '系统设置', icon: '⚙', owner: true },
       { id: 'account', label: '账户设置', icon: '◎' }
     ]
@@ -105,13 +105,13 @@ createApp({
       } catch (error) { this.flash(error.message, 'error'); } finally { this.busy = false; }
     },
     async logout() { try { await this.api('/api/auth/logout', { method: 'POST' }); } finally { this.user = null; this.csrf = ''; this.page = 'dashboard'; this.menuOpen = false; } },
-    async loadCore() { await Promise.all([this.loadSubscriptions(), this.loadRuns(), ...(this.isOwner ? [this.loadUsers(), this.loadTemplates(), this.loadSettings()] : [])]); },
+    async loadCore() { await Promise.all([this.loadSubscriptions(), this.loadRuns(), this.loadTemplates(), ...(this.isOwner ? [this.loadUsers(), this.loadSettings()] : [])]); },
     async refreshPage() {
       try {
         if (this.page === 'subscriptions') await this.loadSubscriptions();
         if (this.page === 'generation' || this.page === 'dashboard') await this.loadRuns();
         if (this.page === 'users' && this.isOwner) await this.loadUsers();
-        if (this.page === 'templates' && this.isOwner) await this.loadTemplates();
+        if (this.page === 'templates') await this.loadTemplates();
         if (this.page === 'substore' && this.isOwner) await this.loadSubstore();
         if (this.page === 'system' && this.isOwner) await this.loadSettings();
       } catch (error) { this.flash(error.message, 'error'); }
@@ -119,7 +119,10 @@ createApp({
     async loadSubscriptions() { this.subscriptions = (await this.api('/api/subscriptions')).subscriptions; },
     async loadRuns() { this.runs = (await this.api('/api/generation/status')).runs; },
     async loadUsers() { this.users = (await this.api('/api/admin/users')).users; },
-    async loadTemplates() { this.templates = (await this.api('/api/admin/templates')).templates; },
+    async loadTemplates() {
+      this.templates = (await this.api('/api/templates')).templates;
+      if (!this.templateForm.id && this.templates.length) await this.selectTemplate(this.templates[0]);
+    },
     async loadSettings() {
       const [system, singbox] = await Promise.all([
         this.api('/api/admin/settings'),
@@ -227,45 +230,57 @@ createApp({
       } catch (error) { this.flash(error.message, 'error'); }
       finally { this.generationTesting = false; }
     },
-    async createTemplate() {
-      try {
-        const body = { ...this.templateForm };
-        const parent = body.parent_id;
-        delete body.parent_id;
-        if (String(body.content || '').trim()) body.content = JSON.parse(body.content);
-        else delete body.content;
-        const route = parent ? `/api/admin/templates/${parent}/versions` : '/api/admin/templates';
-        const data = await this.api(route, { method: 'POST', body });
-        this.templateForm = { parent_id: null, source_type: 'local', source_url: '', content: '' };
-        await this.loadTemplates();
-        this.flash(`模板 ${data.id.slice(0,8)} 已保存为新版本`);
-      } catch (error) { this.flash(`模板无效：${error.message}`, 'error'); }
-    },
-    async editTemplate(tpl) {
-      const data = await this.api(`/api/admin/templates/${tpl.id}`);
+    newTemplate() { this.templateForm = { id: null, name: '新模板', content: '{\n  "outbounds": []\n}' }; },
+    async selectTemplate(tpl) {
+      if (!tpl) return;
+      const data = await this.api(`/api/templates/${tpl.id}`);
       this.templateForm = {
-        parent_id: tpl.id,
-        source_type: data.template.source_type,
-        source_url: data.template.source_url || '',
+        id: data.template.id,
+        name: data.template.name,
         content: JSON.stringify(data.template.content, null, 2)
       };
     },
-    cancelTemplateEdit() { this.templateForm = { parent_id: null, source_type: 'local', source_url: '', content: '' }; },
-    async refreshTemplate(tpl) {
+    async cloneTemplate() {
+      if (!this.templateForm.content) return this.flash('请先选择模板', 'error');
       try {
-        const data = await this.api(`/api/admin/templates/${tpl.id}/refresh`, { method: 'POST' });
+        const data = await this.api('/api/templates', {
+          method: 'POST',
+          body: { name: `${this.templateForm.name || '模板'} 副本`, content: JSON.parse(this.templateForm.content) }
+        });
         await this.loadTemplates();
-        this.flash(`远程模板已刷新为版本 ${data.id.slice(0,8)}`);
-      } catch (error) {
-        await this.loadTemplates();
-        this.flash(`刷新失败，继续保留旧版本：${error.message}`, 'error');
-      }
+        const created = this.templates.find((tpl) => tpl.id === data.id);
+        if (created) await this.selectTemplate(created);
+        this.flash('模板已克隆');
+      } catch (error) { this.flash(`模板无效：${error.message}`, 'error'); }
     },
-    async switchTemplate(tpl) {
-      if (tpl.active || !confirm(`切换到模板版本 ${tpl.id.slice(0,8)}？下一次配置生成将使用此版本。`)) return;
-      await this.api(`/api/admin/templates/${tpl.id}/activate`, { method: 'POST' });
+    async saveTemplate() {
+      try {
+        const body = { name: this.templateForm.name, content: JSON.parse(this.templateForm.content) };
+        const data = this.templateForm.id
+          ? await this.api(`/api/templates/${this.templateForm.id}`, { method: 'PUT', body })
+          : await this.api('/api/templates', { method: 'POST', body });
+        await this.loadTemplates();
+        const saved = this.templates.find((tpl) => tpl.id === (this.templateForm.id || data.id));
+        if (saved) await this.selectTemplate(saved);
+        this.flash('模板已保存');
+      } catch (error) { this.flash(`模板无效：${error.message}`, 'error'); }
+    },
+    async deleteTemplate() {
+      if (!this.templateForm.id || !confirm(`删除模板“${this.templateForm.name}”？`)) return;
+      await this.api(`/api/templates/${this.templateForm.id}`, { method: 'DELETE' });
+      this.templateForm = { id: null, name: '', content: '' };
       await this.loadTemplates();
-      this.flash('活动模板版本已切换');
+      this.flash('模板已删除');
+    },
+    async setDefaultTemplate() {
+      if (!this.templateForm.id) return this.flash('请先选择模板', 'error');
+      await this.api(`/api/templates/${this.templateForm.id}/default`, { method: 'POST' });
+      await this.loadTemplates();
+      this.flash('默认模板已更新');
+    },
+    formatTemplate() {
+      try { this.templateForm.content = JSON.stringify(JSON.parse(this.templateForm.content), null, 2); }
+      catch (error) { this.flash(`模板无效：${error.message}`, 'error'); }
     },
     async userAction(item, action) { await this.api(`/api/admin/users/${item.id}/${action}`, { method: 'POST' }); await this.loadUsers(); },
     async deleteUser(item) { if (!confirm(`永久删除用户“${item.username}”？`)) return; await this.api(`/api/admin/users/${item.id}`, { method: 'DELETE' }); await this.loadUsers(); },

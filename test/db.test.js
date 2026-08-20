@@ -18,13 +18,13 @@ test('applies initial migration idempotently with WAL and foreign keys', () => {
   assert.ok(tables.includes('schema_migrations'));
   assert.equal(database.pragma('foreign_keys', { simple: true }), 1);
   assert.equal(database.pragma('journal_mode', { simple: true }), 'wal');
-  assert.equal(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 4);
+  assert.equal(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 5);
   assert.ok(database.pragma('table_info(client_tokens)').some(({ name }) => name === 'raw_token'));
   assert.ok(database.pragma('index_list(client_tokens)').some(({ name }) => name === 'client_tokens_raw_token_idx'));
   database.close();
 
   const reopened = openDatabase(databasePath);
-  assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 4);
+  assert.equal(reopened.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 5);
   reopened.close();
 
   fs.rmSync(directory, { recursive: true, force: true });

@@ -68,61 +68,88 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     return normalized;
   }
 
-  function template(id) {
-    return database.prepare('SELECT * FROM template_versions WHERE id=?').get(id);
+  function userTemplates(userId) {
+    return database.prepare(`SELECT id,name,content_hash,is_default,created_at,updated_at
+      FROM templates WHERE user_id=? ORDER BY is_default DESC, updated_at DESC, created_at DESC`).all(userId);
   }
 
-  async function createTemplateVersion({
-    sourceType, sourceUrl = null, content, parentId = null
-  }) {
-    const parent = parentId ? template(parentId) : null;
-    if (parentId && !parent) throw new Error('template_not_found');
-    const type = sourceType || parent?.source_type;
-    const url = sourceUrl || parent?.source_url || null;
-    if (!['local', 'remote'].includes(type)) throw new Error('template_source_invalid');
-    let resolved = content;
-    if (resolved === undefined && type === 'remote') {
-      if (!url) throw new Error('template_source_url_required');
-      resolved = await fetchJson(url);
+  function template(userId, id) {
+    return database.prepare('SELECT * FROM templates WHERE user_id=? AND id=?').get(userId, id);
+  }
+
+  function defaultTemplate(userId) {
+    return database.prepare('SELECT * FROM templates WHERE user_id=? AND is_default=1').get(userId);
+  }
+
+  function normalizeTemplateInput(value) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) throw new Error('template_content_required');
+      try { return JSON.parse(trimmed); } catch { throw new Error('template_json_invalid'); }
     }
-    if (resolved === undefined) throw new Error('template_content_required');
+    if (value === undefined || value === null) throw new Error('template_content_required');
+    return value;
+  }
+
+  function cleanTemplateName(value) {
+    const name = String(value || '').trim();
+    if (!name || name.length > 80) throw new Error('template_name_invalid');
+    return name;
+  }
+
+  function createTemplate(userId, { name, content, makeDefault = false }) {
+    const resolved = normalizeTemplateInput(content);
     validateTemplate(resolved);
     const id = randomUUID();
     const now = new Date().toISOString();
-    database.prepare(`INSERT INTO template_versions
-      (id,source_type,source_url,content_json,content_hash,active,created_at,parent_id,status,last_checked_at,last_error)
-      VALUES(?,?,?,?,?,0,?,?, 'ready',?,NULL)`)
-      .run(id, type, type === 'remote' ? url : null, JSON.stringify(resolved), hashTemplate(resolved), now, parentId, type === 'remote' ? now : null);
-    return { id, parent_id: parentId };
+    const shouldDefault = makeDefault || !defaultTemplate(userId);
+    database.transaction(() => {
+      if (shouldDefault) database.prepare('UPDATE templates SET is_default=0,updated_at=? WHERE user_id=?').run(now, userId);
+      database.prepare(`INSERT INTO templates
+        (id,user_id,name,content_json,content_hash,is_default,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)`)
+        .run(id, userId, cleanTemplateName(name), JSON.stringify(resolved), hashTemplate(resolved),
+          shouldDefault ? 1 : 0, now, now);
+    })();
+    return { id, is_default: shouldDefault };
   }
 
-  async function refreshTemplate(id) {
-    const current = template(id);
-    if (!current) throw new Error('template_not_found');
-    if (current.source_type !== 'remote' || !current.source_url) throw new Error('template_not_remote');
-    const checkedAt = new Date().toISOString();
-    try {
-      const content = await fetchJson(current.source_url);
-      database.prepare("UPDATE template_versions SET status='ready',last_checked_at=?,last_error=NULL WHERE id=?").run(checkedAt, id);
-      return await createTemplateVersion({
-        sourceType: 'remote', sourceUrl: current.source_url, content, parentId: id
-      });
-    } catch (error) {
-      database.prepare("UPDATE template_versions SET status='error',last_checked_at=?,last_error=? WHERE id=?")
-        .run(checkedAt, error.message, id);
-      throw error;
-    }
+  function updateTemplate(userId, id, { name, content }) {
+    const current = template(userId, id);
+    if (!current) return null;
+    const resolved = content === undefined ? JSON.parse(current.content_json) : normalizeTemplateInput(content);
+    validateTemplate(resolved);
+    const nextName = name === undefined ? current.name : cleanTemplateName(name);
+    const now = new Date().toISOString();
+    database.prepare(`UPDATE templates SET name=?,content_json=?,content_hash=?,updated_at=?
+      WHERE user_id=? AND id=?`)
+      .run(nextName, JSON.stringify(resolved), hashTemplate(resolved), now, userId, id);
+    return { id };
   }
 
-  function activateTemplate(id) {
+  function deleteTemplate(userId, id) {
+    const current = template(userId, id);
+    if (!current) return null;
     return database.transaction(() => {
-      const target = template(id);
+      database.prepare('DELETE FROM templates WHERE user_id=? AND id=?').run(userId, id);
+      if (current.is_default) {
+        const next = database.prepare(`SELECT id FROM templates WHERE user_id=?
+          ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(userId);
+        if (next) database.prepare('UPDATE templates SET is_default=1,updated_at=? WHERE id=?').run(new Date().toISOString(), next.id);
+      }
+      return { id };
+    })();
+  }
+
+  function setDefaultTemplate(userId, id) {
+    return database.transaction(() => {
+      const target = template(userId, id);
       if (!target) return null;
       validateTemplate(JSON.parse(target.content_json));
-      const previous = database.prepare('SELECT id FROM template_versions WHERE active=1').get();
-      database.prepare('UPDATE template_versions SET active=0 WHERE active=1').run();
-      database.prepare("UPDATE template_versions SET active=1,status='ready' WHERE id=?").run(id);
-      return { previous_id: previous?.id || null, active_id: id };
+      const now = new Date().toISOString();
+      database.prepare('UPDATE templates SET is_default=0,updated_at=? WHERE user_id=?').run(now, userId);
+      database.prepare('UPDATE templates SET is_default=1,updated_at=? WHERE user_id=? AND id=?').run(now, userId, id);
+      return { id };
     })();
   }
 
@@ -184,28 +211,28 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
       throw error;
     };
     const generationSettings = settings();
-    const templateRow = database.prepare('SELECT * FROM template_versions WHERE active=1').get();
+    const templateRow = defaultTemplate(user.id);
     if (!templateRow) {
-      addStep('模板来源', 'error', '请先激活一个模板版本。');
-      abort('active_template_required');
+      addStep('模板来源', 'error', '请先创建并设定一个默认模板。');
+      abort('user_template_required');
     }
     let template;
     try {
       template = JSON.parse(templateRow.content_json);
       validateTemplate(template);
     } catch (error) {
-      addStep('模板来源', 'error', `活动模板无效：${error.message}`);
+      addStep('模板来源', 'error', `默认模板无效：${error.message}`);
       abort(error.message);
     }
-    const templateSource = templateRow.source_type === 'remote' ? 'remote_cached' : 'local_sqlite';
+    const templateSource = 'user_template';
     Object.assign(progress, {
       template_source: templateSource,
-      template_version: templateRow.id,
+      template_id: templateRow.id,
+      template_name: templateRow.name,
       template_hash: templateRow.content_hash
     });
-    addStep('模板来源', 'success',
-      templateRow.source_type === 'remote' ? '已使用远程缓存模板版本。' : '已使用 SQLite 本地模板版本。',
-      { source: templateSource, version_id: templateRow.id, content_hash: templateRow.content_hash, created_at: templateRow.created_at });
+    addStep('模板来源', 'success', `已使用用户默认模板“${templateRow.name}”。`,
+      { source: templateSource, template_id: templateRow.id, content_hash: templateRow.content_hash, updated_at: templateRow.updated_at });
 
     const rows = database.prepare('SELECT * FROM subscriptions WHERE user_id=? AND enabled=1 ORDER BY created_at').all(user.id);
     const subscriptions = rows.map((row) => ({
@@ -284,7 +311,8 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
       summary: {
         duration_ms: Date.now() - startedAt,
         template_source: templateSource,
-        template_version: templateRow.id,
+        template_id: templateRow.id,
+        template_name: templateRow.name,
         template_hash: templateRow.content_hash,
         subscriptions: rows.length,
         successful_subscriptions: successCount,
@@ -331,9 +359,12 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     saveRun,
     hashTemplate,
     template,
-    createTemplateVersion,
-    refreshTemplate,
-    activateTemplate,
+    userTemplates,
+    defaultTemplate,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
+    setDefaultTemplate,
     settings,
     updateSettings,
     testSubscription

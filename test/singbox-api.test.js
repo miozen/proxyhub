@@ -47,13 +47,11 @@ test('creates template and subscription then generates config by client token', 
   const login = await call(base, '/api/auth/login', { method: 'POST', body: { username: 'owner', password: 'owner-password-123' } });
   const headers = { cookie: login.cookie, 'x-csrf-token': login.body.csrf_token };
 
-  let result = await call(base, '/api/admin/templates', { method: 'POST', headers, body: {
-    source_type: 'local',
+  let result = await call(base, '/api/templates', { method: 'POST', headers, body: {
+    name: 'Owner Template',
     content: { outbounds: [{ type: 'direct', tag: 'DIRECT' }, { type: 'selector', tag: 'Select', x_rule: 'region:HK', outbounds: [] }] }
   } });
   assert.equal(result.response.status, 201);
-  await call(base, `/api/admin/templates/${result.body.id}/activate`, { method: 'POST', headers });
-
   result = await call(base, '/api/subscriptions', { method: 'POST', headers, body: {
     name: 'Airport', url: 'http://10.10.10.251/sub.json', allowed_regions: ['HK']
   } });
@@ -184,15 +182,13 @@ test('P2 acceptance: isolates failed sources and users and obeys cache fallback'
   const member = await call(base, '/api/auth/login', { method: 'POST', body: { username: 'member', password: 'member-password-123' } });
   const memberHeaders = { cookie: member.cookie, 'x-csrf-token': member.body.csrf_token };
 
-  let result = await call(base, '/api/admin/templates', { method: 'POST', headers: ownerHeaders, body: {
-    source_type: 'local',
+  let result = await call(base, '/api/templates', { method: 'POST', headers: ownerHeaders, body: {
+    name: 'Owner Template',
     content: { outbounds: [
       { type: 'direct', tag: '🎯 全球直连' },
       { type: 'selector', tag: '🗽 节点选择', x_rule: 'main', outbounds: [] }
     ] }
   } });
-  await call(base, `/api/admin/templates/${result.body.id}/activate`, { method: 'POST', headers: ownerHeaders });
-
   const good = await call(base, '/api/subscriptions', { method: 'POST', headers: ownerHeaders, body: {
     name: 'OwnerGood', url: 'https://example.com/good', allowed_regions: ['HK']
   } });
@@ -231,7 +227,6 @@ test('P2 acceptance: isolates failed sources and users and obeys cache fallback'
   assert.equal(result.body.error, 'all_subscriptions_failed');
   assert.equal(result.body.steps[1].name, '订阅源拉取');
   assert.equal(result.body.steps[1].details.items.length, 2);
-  database.prepare('UPDATE template_versions SET active=0 WHERE active=1').run();
   result = await call(base, `/api/generate?token=${encodeURIComponent(ownerToken.body.token)}`);
   assert.equal(result.response.status, 200);
   assert.equal(result.response.headers.get('x-proxyhub-cache'), 'stale');

@@ -6,3 +6,9 @@
 .version-list .danger-text{color:var(--red);white-space:normal;word-break:break-word}
 @media(max-width:700px){.version-list article{flex-direction:column}}
 
+.template-editor{display:grid;gap:14px}
+.template-toolbar{display:grid;grid-template-columns:minmax(150px,220px) minmax(180px,1fr) auto;gap:10px;align-items:center}
+.template-editor textarea{min-height:560px;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:13px;line-height:1.55;resize:vertical}
+@media(max-width:1050px){.template-toolbar{grid-template-columns:1fr 1fr}.template-toolbar .actions{grid-column:1/-1}}
+@media(max-width:700px){.template-toolbar{grid-template-columns:1fr}.template-editor textarea{min-height:420px}}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

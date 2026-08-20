@@ -120,67 +120,73 @@ export function createSingboxRouter({ database, config, auth, service }) {
     catch (error) { response.status(400).json({ error: error.message }); }
   });
 
-  router.get('/admin/templates', auth.requireOwner, (_request, response) => response.json({
-    templates: database.prepare(`SELECT id,source_type,source_url,content_hash,active,created_at,
-      parent_id,status,last_checked_at,last_error FROM template_versions ORDER BY created_at DESC`).all()
-  }));
-  router.get('/admin/templates/:id', auth.requireOwner, (request, response) => {
-    const row = service.template(request.params.id);
+  function templatePayload(row) {
+    return {
+      id: row.id, name: row.name, content: JSON.parse(row.content_json),
+      content_hash: row.content_hash, is_default: !!row.is_default,
+      created_at: row.created_at, updated_at: row.updated_at
+    };
+  }
+
+  function listTemplates(request, response) {
+    response.json({ templates: service.userTemplates(request.auth.user.id).map((row) => ({
+      ...row, is_default: !!row.is_default
+    })) });
+  }
+
+  function getTemplate(request, response) {
+    const row = service.template(request.auth.user.id, request.params.id);
     if (!row) return response.status(404).json({ error: 'template_not_found' });
-    response.json({
-      template: {
-        id: row.id, source_type: row.source_type, source_url: row.source_url,
-        content: JSON.parse(row.content_json), content_hash: row.content_hash,
-        active: !!row.active, parent_id: row.parent_id, status: row.status,
-        last_checked_at: row.last_checked_at, last_error: row.last_error,
-        created_at: row.created_at
-      }
-    });
-  });
-  router.post('/admin/templates', auth.requireOwner, auth.requireCsrf, async (request, response) => {
+    response.json({ template: templatePayload(row) });
+  }
+
+  function createTemplate(request, response) {
     try {
-      const result = await service.createTemplateVersion({
-        sourceType: request.body?.source_type,
-        sourceUrl: request.body?.source_url,
+      response.status(201).json(service.createTemplate(request.auth.user.id, {
+        name: request.body?.name,
+        content: request.body?.content,
+        makeDefault: request.body?.is_default === true
+      }));
+    } catch (error) { response.status(400).json({ error: error.message }); }
+  }
+
+  function updateTemplate(request, response) {
+    try {
+      const result = service.updateTemplate(request.auth.user.id, request.params.id, {
+        name: request.body?.name,
         content: request.body?.content
       });
-      response.status(201).json(result);
-    } catch (error) { response.status(400).json({ error: error.message }); }
-  });
-  router.post('/admin/templates/:id/versions', auth.requireOwner, auth.requireCsrf, async (request, response) => {
-    try {
-      const result = await service.createTemplateVersion({
-        sourceType: request.body?.source_type,
-        sourceUrl: request.body?.source_url,
-        content: request.body?.content,
-        parentId: request.params.id
-      });
-      response.status(201).json(result);
-    } catch (error) {
-      response.status(error.message === 'template_not_found' ? 404 : 400).json({ error: error.message });
-    }
-  });
-  router.post('/admin/templates/:id/refresh', auth.requireOwner, auth.requireCsrf, async (request, response) => {
-    try { response.status(201).json(await service.refreshTemplate(request.params.id)); }
-    catch (error) {
-      const status = error.message === 'template_not_found' ? 404 : (error.message === 'template_not_remote' ? 400 : 502);
-      response.status(status).json({ error: error.message });
-    }
-  });
-  router.post('/admin/templates/:id/activate', auth.requireOwner, auth.requireCsrf, (request, response) => {
-    try {
-      const result = service.activateTemplate(request.params.id);
       if (!result) return response.status(404).json({ error: 'template_not_found' });
       response.json({ success: true, ...result });
     } catch (error) { response.status(400).json({ error: error.message }); }
-  });
-  router.post('/admin/templates/:id/rollback', auth.requireOwner, auth.requireCsrf, (request, response) => {
+  }
+
+  function deleteTemplate(request, response) {
+    const result = service.deleteTemplate(request.auth.user.id, request.params.id);
+    response.status(result ? 200 : 404).json(result ? { success: true } : { error: 'template_not_found' });
+  }
+
+  function setDefaultTemplate(request, response) {
     try {
-      const result = service.activateTemplate(request.params.id);
+      const result = service.setDefaultTemplate(request.auth.user.id, request.params.id);
       if (!result) return response.status(404).json({ error: 'template_not_found' });
-      response.json({ success: true, rollback: true, ...result });
+      response.json({ success: true, ...result });
     } catch (error) { response.status(400).json({ error: error.message }); }
-  });
+  }
+
+  router.get('/templates', listTemplates);
+  router.get('/templates/:id', getTemplate);
+  router.post('/templates', auth.requireCsrf, createTemplate);
+  router.put('/templates/:id', auth.requireCsrf, updateTemplate);
+  router.delete('/templates/:id', auth.requireCsrf, deleteTemplate);
+  router.post('/templates/:id/default', auth.requireCsrf, setDefaultTemplate);
+
+  router.get('/admin/templates', auth.requireOwner, listTemplates);
+  router.get('/admin/templates/:id', auth.requireOwner, getTemplate);
+  router.post('/admin/templates', auth.requireOwner, auth.requireCsrf, createTemplate);
+  router.put('/admin/templates/:id', auth.requireOwner, auth.requireCsrf, updateTemplate);
+  router.delete('/admin/templates/:id', auth.requireOwner, auth.requireCsrf, deleteTemplate);
+  router.post('/admin/templates/:id/default', auth.requireOwner, auth.requireCsrf, setDefaultTemplate);
   return router;
 }
 

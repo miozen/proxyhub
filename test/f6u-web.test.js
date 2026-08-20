@@ -30,10 +30,12 @@ test('F6U exposes subscription enable control and complete generation diagnostic
   assert.match(html, /查看原始诊断报告/);
 });
 
-test('F6U explains immutable template versions and uses one switch action', () => {
-  assert.match(html, /配置生成始终使用标记为“当前使用”的版本/);
-  assert.match(html, /切换到此版本/);
-  assert.match(javascript, /async switchTemplate\(tpl\)/);
+test('F6U exposes user-level template editing actions', () => {
+  assert.match(html, /page==='templates'/);
+  assert.match(html, /设为默认/);
+  assert.match(html, /粘贴 sing-box 模板 JSON/);
+  assert.match(javascript, /async setDefaultTemplate\(\)/);
+  assert.match(javascript, /\/api\/templates/);
   assert.doesNotMatch(html, /@click="rollbackTemplate\(tpl\)"/);
 });
 

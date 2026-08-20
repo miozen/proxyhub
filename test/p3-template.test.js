@@ -20,18 +20,16 @@ async function json(base, route, options = {}) {
   };
 }
 
-test('P3 acceptance: validates, versions, refreshes, caches and rolls back templates', async (context) => {
+test('P3 acceptance: each user manages isolated default templates', async (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyhub-p3-'));
   const database = openDatabase(path.join(directory, 'proxyhub.db'));
-  let remoteContent = { outbounds: [{ type: 'direct', tag: 'DIRECT-V1' }] };
-  let remoteFailure = false;
   const app = createApp({
     config: loadConfig({ NODE_ENV: 'development' }),
     database,
     probeSubstore: async () => ({ reachable: true, status: 200 }),
-    singboxFetch: async () => {
-      if (remoteFailure) throw new Error('remote_fixture_failed');
-      return structuredClone(remoteContent);
+    singboxFetch: async (url) => {
+      if (url.includes('/member')) return { outbounds: [{ type: 'vless', tag: 'US-Member' }] };
+      return { outbounds: [{ type: 'vless', tag: 'HK-Owner' }] };
     }
   });
   const server = app.listen(0, '127.0.0.1');
@@ -47,16 +45,25 @@ test('P3 acceptance: validates, versions, refreshes, caches and rolls back templ
   await json(base, '/api/auth/register', {
     method: 'POST', body: { username: 'owner', password: 'owner-password-123' }
   });
+  await json(base, '/api/auth/register', {
+    method: 'POST', body: { username: 'member', password: 'member-password-123' }
+  });
   const owner = await json(base, '/api/auth/login', {
     method: 'POST', body: { username: 'owner', password: 'owner-password-123' }
   });
-  const headers = { cookie: owner.cookie, 'x-csrf-token': owner.body.csrf_token };
+  const ownerHeaders = { cookie: owner.cookie, 'x-csrf-token': owner.body.csrf_token };
+  const memberId = database.prepare("SELECT id FROM users WHERE username='member'").get().id;
+  await json(base, `/api/admin/users/${memberId}/approve`, { method: 'POST', headers: ownerHeaders });
+  const member = await json(base, '/api/auth/login', {
+    method: 'POST', body: { username: 'member', password: 'member-password-123' }
+  });
+  const memberHeaders = { cookie: member.cookie, 'x-csrf-token': member.body.csrf_token };
 
-  let result = await json(base, '/api/admin/templates', {
+  let result = await json(base, '/api/templates', {
     method: 'POST',
-    headers,
+    headers: ownerHeaders,
     body: {
-      source_type: 'local',
+      name: 'Broken',
       content: {
         outbounds: [
           { type: 'direct', tag: 'DIRECT' },
@@ -68,66 +75,69 @@ test('P3 acceptance: validates, versions, refreshes, caches and rolls back templ
   assert.equal(result.response.status, 400);
   assert.match(result.body.error, /template_reference_missing/);
 
-  result = await json(base, '/api/admin/templates', {
+  result = await json(base, '/api/templates', {
     method: 'POST',
-    headers,
-    body: { source_type: 'remote', source_url: 'https://templates.example/config.json' }
+    headers: ownerHeaders,
+    body: { name: 'Owner HK', content: { outbounds: [{ type: 'direct', tag: 'OWNER-DIRECT' }] } }
   });
   assert.equal(result.response.status, 201);
-  const v1 = result.body.id;
-  await json(base, `/api/admin/templates/${v1}/activate`, { method: 'POST', headers });
+  const ownerFirst = result.body.id;
+  assert.equal(result.body.is_default, true);
 
-  const token = await json(base, '/api/me/token/reset', { method: 'POST', headers });
-  result = await json(base, `/api/generate?token=${encodeURIComponent(token.body.token)}`);
-  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'DIRECT-V1'));
-
-  remoteFailure = true;
-  result = await json(base, `/api/admin/templates/${v1}/refresh`, { method: 'POST', headers });
-  assert.equal(result.response.status, 502);
-  let detail = await json(base, `/api/admin/templates/${v1}`, { headers });
-  assert.equal(detail.body.template.active, true);
-  assert.equal(detail.body.template.status, 'error');
-  assert.equal(detail.body.template.content.outbounds[0].tag, 'DIRECT-V1');
-  result = await json(base, `/api/generate?token=${encodeURIComponent(token.body.token)}`);
-  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'DIRECT-V1'));
-
-  remoteFailure = false;
-  remoteContent = { outbounds: [{ type: 'direct', tag: 'DIRECT-V2' }] };
-  result = await json(base, `/api/admin/templates/${v1}/refresh`, { method: 'POST', headers });
-  assert.equal(result.response.status, 201);
-  const v2 = result.body.id;
-  assert.equal(result.body.parent_id, v1);
-  detail = await json(base, `/api/admin/templates/${v1}`, { headers });
-  assert.equal(detail.body.template.content.outbounds[0].tag, 'DIRECT-V1');
-
-  result = await json(base, `/api/admin/templates/${v2}/versions`, {
+  result = await json(base, '/api/templates', {
     method: 'POST',
-    headers,
-    body: {
-      source_type: 'local',
-      content: { outbounds: [{ type: 'direct', tag: 'DIRECT-V3' }] }
-    }
+    headers: ownerHeaders,
+    body: { name: 'Owner Alt', content: { outbounds: [{ type: 'direct', tag: 'OWNER-ALT' }] } }
   });
-  assert.equal(result.response.status, 201);
-  const v3 = result.body.id;
-  assert.equal(result.body.parent_id, v2);
-  await json(base, `/api/admin/templates/${v3}/activate`, { method: 'POST', headers });
-  result = await json(base, `/api/generate?token=${encodeURIComponent(token.body.token)}`);
-  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'DIRECT-V3'));
+  const ownerSecond = result.body.id;
+  assert.equal(result.body.is_default, false);
+  await json(base, `/api/templates/${ownerSecond}/default`, { method: 'POST', headers: ownerHeaders });
 
-  result = await json(base, `/api/admin/templates/${v1}/rollback`, { method: 'POST', headers });
+  result = await json(base, `/api/templates/${ownerFirst}`, {
+    method: 'PUT',
+    headers: ownerHeaders,
+    body: { name: 'Owner Renamed', content: { outbounds: [{ type: 'direct', tag: 'OWNER-RENAMED' }] } }
+  });
   assert.equal(result.response.status, 200);
-  assert.equal(result.body.rollback, true);
-  assert.equal(result.body.previous_id, v3);
-  result = await json(base, `/api/generate?token=${encodeURIComponent(token.body.token)}`);
-  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'DIRECT-V1'));
-  assert.ok(!result.body.outbounds.some((outbound) => outbound.tag === 'DIRECT-V3'));
 
-  const versions = await json(base, '/api/admin/templates', { headers });
-  assert.equal(versions.body.templates.length, 3);
-  assert.equal(new Set(versions.body.templates.map((item) => item.content_hash)).size, 3);
-  assert.equal(versions.body.templates.find((item) => item.id === v1).active, 1);
-  assert.equal(versions.body.templates.find((item) => item.id === v2).parent_id, v1);
-  assert.equal(versions.body.templates.find((item) => item.id === v3).parent_id, v2);
+  result = await json(base, `/api/templates/${ownerSecond}`, { headers: memberHeaders });
+  assert.equal(result.response.status, 404);
+  result = await json(base, `/api/templates/${ownerSecond}`, {
+    method: 'PUT', headers: memberHeaders, body: { name: 'Stolen' }
+  });
+  assert.equal(result.response.status, 404);
+
+  result = await json(base, '/api/templates', {
+    method: 'POST',
+    headers: memberHeaders,
+    body: { name: 'Member US', content: { outbounds: [{ type: 'direct', tag: 'MEMBER-DIRECT' }] } }
+  });
+  assert.equal(result.response.status, 201);
+
+  await json(base, '/api/subscriptions', {
+    method: 'POST', headers: ownerHeaders,
+    body: { name: 'OwnerAirport', url: 'https://example.com/owner', allowed_regions: ['HK'] }
+  });
+  await json(base, '/api/subscriptions', {
+    method: 'POST', headers: memberHeaders,
+    body: { name: 'MemberAirport', url: 'https://example.com/member', allowed_regions: ['US'] }
+  });
+
+  const ownerToken = await json(base, '/api/me/token/reset', { method: 'POST', headers: ownerHeaders });
+  result = await json(base, `/api/generate?token=${encodeURIComponent(ownerToken.body.token)}`);
+  assert.equal(result.response.status, 200);
+  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'OWNER-ALT'));
+  assert.ok(!result.body.outbounds.some((outbound) => outbound.tag === 'MEMBER-DIRECT'));
+
+  const memberToken = await json(base, '/api/me/token/reset', { method: 'POST', headers: memberHeaders });
+  result = await json(base, `/api/generate?token=${encodeURIComponent(memberToken.body.token)}`);
+  assert.equal(result.response.status, 200);
+  assert.ok(result.body.outbounds.some((outbound) => outbound.tag === 'MEMBER-DIRECT'));
+  assert.ok(!result.body.outbounds.some((outbound) => outbound.tag === 'OWNER-ALT'));
+
+  await json(base, `/api/templates/${ownerSecond}`, { method: 'DELETE', headers: ownerHeaders });
+  const templates = await json(base, '/api/templates', { headers: ownerHeaders });
+  assert.equal(templates.body.templates.length, 1);
+  assert.equal(templates.body.templates[0].id, ownerFirst);
+  assert.equal(templates.body.templates[0].is_default, true);
 });
-
