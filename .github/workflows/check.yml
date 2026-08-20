@@ -51,7 +51,7 @@ jobs:
             # Only files that affect the runtime image should pay the image-build cost.
             case "$file" in
               Dockerfile|.dockerignore|package.json|package-lock.json|\
-              src/*|public/*|scripts/p5-compose-smoke.js)
+              src/*|public/*|scripts/p5-compose-smoke.js|.github/workflows/check.yml)
                 docker=true
                 ;;
             esac
