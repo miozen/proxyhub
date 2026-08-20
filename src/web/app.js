@@ -59,7 +59,8 @@ createApp({
       if (!response.ok) {
         const errorMessages = {
           registration_disabled: '注册功能已关闭',
-          subscription_decryption_failed: '订阅数据无法解密，请恢复原 DATA_ENCRYPTION_KEY'
+          subscription_decryption_failed: '订阅数据无法解密，请恢复原 DATA_ENCRYPTION_KEY',
+          user_template_required: '请先在模板管理中创建并设为默认模板'
         };
         const error = new Error(errorMessages[data.error] || data.error || `HTTP ${response.status}`);
         error.status = response.status;
