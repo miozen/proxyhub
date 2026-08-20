@@ -1,7 +1,7 @@
 FROM node:22.23.2-alpine AS dependencies
 
 WORKDIR /app
-RUN apk add --no-cache python3 make g++
+RUN apk upgrade --no-cache && apk add --no-cache python3 make g++
 COPY package*.json ./
 RUN npm install --omit=dev
 
@@ -10,7 +10,8 @@ FROM node:22.23.2-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 
-RUN apk add --no-cache tini \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache tini \
     && addgroup -S proxyhub \
     && adduser -S -G proxyhub proxyhub \
     && mkdir -p /app/data \
