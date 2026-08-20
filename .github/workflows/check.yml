@@ -225,7 +225,7 @@ jobs:
           docker pull xream/sub-store:2.36.20
           previous_substore_digest="$(docker image inspect xream/sub-store:2.36.20 \
             --format '{{range .RepoDigests}}{{println .}}{{end}}' |
-            sed -n '\\|^xream/sub-store@sha256:|p' | head -1)"
+            sed -n '\|^xream/sub-store@sha256:|p' | head -1)"
           test -n "$previous_substore_digest"
           awk -v image="$previous_substore_digest" '
             /^SUBSTORE_IMAGE=/ {
