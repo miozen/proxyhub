@@ -3,7 +3,7 @@
 ProxyHub 用于在 VPS 或内网虚拟机上管理用户、模板和 sing-box 配置，
 并通过独立的 Sub-Store 容器管理节点订阅。
 
-当前稳定版本：`v0.1.7`
+当前稳定版本：`v0.1.8`
 
 ## 安装要求
 
@@ -46,7 +46,7 @@ chmod +x /tmp/proxyhub-install.sh
 /tmp/proxyhub-install.sh --version <VERSION> --yes
 ```
 
-`<VERSION>` 可以写成 `0.1.7` 或 `v0.1.7`。通常不需要指定 Sub-Store
+`<VERSION>` 可以写成 `0.1.8` 或 `v0.1.8`。通常不需要指定 Sub-Store
 版本；安装器会从官方 `xream/sub-store:latest` 发现当前稳定镜像，再将
 不可变 digest 写入配置。确实需要固定旧版本时才使用：
 
