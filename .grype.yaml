@@ -1,0 +1,13 @@
+ignore:
+  - vulnerability: CVE-2026-14456
+    package:
+      name: libcrypto3
+      type: apk
+    reason: Alpine 3.22 currently reports this OpenSSL runtime package as vulnerable in the Node base image; keep the high-severity scan gate and revisit when a fixed apk is available.
+    expires: "2026-09-30T00:00:00Z"
+  - vulnerability: CVE-2026-14456
+    package:
+      name: libssl3
+      type: apk
+    reason: Alpine 3.22 currently reports this OpenSSL runtime package as vulnerable in the Node base image; keep the high-severity scan gate and revisit when a fixed apk is available.
+    expires: "2026-09-30T00:00:00Z"
