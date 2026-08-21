@@ -47,7 +47,20 @@ test('creates template and subscription then generates config by client token', 
   const login = await call(base, '/api/auth/login', { method: 'POST', body: { username: 'owner', password: 'owner-password-123' } });
   const headers = { cookie: login.cookie, 'x-csrf-token': login.body.csrf_token };
 
-  let result = await call(base, '/api/templates', { method: 'POST', headers, body: {
+  let result = await call(base, '/api/templates/validate', { method: 'POST', headers, body: {
+    content: { outbounds: [{ type: 'direct', tag: 'DIRECT' }] }
+  } });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.success, true);
+
+  result = await call(base, '/api/templates/validate', { method: 'POST', headers, body: {
+    content: { outbounds: [{ type: 'selector', tag: 'Select', outbounds: ['Missing'] }] }
+  } });
+  assert.equal(result.response.status, 400);
+  assert.equal(result.body.success, false);
+  assert.match(result.body.error, /^template_reference_missing:/);
+
+  result = await call(base, '/api/templates', { method: 'POST', headers, body: {
     name: 'Owner Template',
     content: { outbounds: [{ type: 'direct', tag: 'DIRECT' }, { type: 'selector', tag: 'Select', x_rule: 'region:HK', outbounds: [] }] }
   } });

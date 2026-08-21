@@ -162,7 +162,12 @@
                 <button class="primary">保存</button>
               </div>
             </div>
-            <textarea id="template-content" v-model="templateForm.content" name="content" rows="24" placeholder="粘贴 sing-box 模板 JSON" required></textarea>
+            <div class="template-status" :class="templateValidation.status">
+              <strong>{{ templateValidation.label }}</strong>
+              <span>{{ templateValidation.message }}</span>
+            </div>
+            <div id="template-content-editor" class="template-monaco" :class="{ready:monacoReady}"></div>
+            <textarea v-if="!monacoReady" id="template-content" v-model="templateForm.content" name="content" rows="24" placeholder="粘贴 sing-box 模板 JSON" required @input="scheduleTemplateValidation"></textarea>
           </form>
         </section>
 
@@ -203,6 +208,16 @@
 
     <div v-if="subscriptionModal" class="modal-backdrop" @click.self="subscriptionModal=null"><form class="modal" @submit.prevent="saveSubscription"><div class="panel-head"><h3>{{ subscriptionForm.id?'编辑':'添加' }}订阅</h3><button type="button" @click="subscriptionModal=null">×</button></div><label for="subscription-name">名称</label><input id="subscription-name" v-model.trim="subscriptionForm.name" name="name" required maxlength="80"><label for="subscription-url">订阅 URL</label><input id="subscription-url" v-model.trim="subscriptionForm.url" name="url" type="url" autocomplete="url" required><label class="check" for="subscription-enabled"><input id="subscription-enabled" v-model="subscriptionForm.enabled" name="enabled" type="checkbox">启用订阅</label><fieldset><legend>允许地区</legend><label v-for="r in regions" :key="r" class="check" :for="'subscription-region-'+r"><input :id="'subscription-region-'+r" v-model="subscriptionForm.allowed_regions" name="allowed_regions" type="checkbox" :value="r">{{ r }}</label></fieldset><div v-if="subscriptionTestReport" class="test-report" :class="{error:!subscriptionTestReport.success}"><template v-if="subscriptionTestReport.success"><strong>{{ subscriptionTestReport.name }}</strong><span>耗时 {{ subscriptionTestReport.duration_ms }} ms</span><span>原始节点 {{ subscriptionTestReport.raw_nodes }} / 有效节点 {{ subscriptionTestReport.valid_nodes }}</span><div class="chips"><span v-for="r in regions" :key="r">{{ r }} {{ subscriptionTestReport.regions[r] || 0 }}</span><span>未匹配 {{ subscriptionTestReport.regions.unmatched || 0 }}</span></div><p v-for="warning in subscriptionTestReport.warnings" :key="warning">{{ warning }}</p></template><template v-else><strong>测试失败</strong><span>{{ subscriptionTestReport.error }}</span></template></div><div class="actions"><button type="button" :disabled="subscriptionTesting || subscriptionSaving" @click="testSubscriptionDraft">{{ subscriptionTesting?'测试中...':'测试订阅源' }}</button><button class="primary" type="submit" :disabled="subscriptionSaving">{{ subscriptionSaving?'保存中...':'保存' }}</button></div></form></div>
   </div>
+  <script>
+    window.MonacoEnvironment = {
+      getWorkerUrl: function () {
+        var base = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.56.0/min/';
+        var code = "self.MonacoEnvironment={baseUrl:'" + base + "'};importScripts('" + base + "vs/base/worker/workerMain.js');";
+        return 'data:text/javascript;charset=utf-8,' + encodeURIComponent(code);
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.56.0/min/vs/loader.js"></script>
   <script src="/proxyhub/vendor/vue.js"></script>
   <script src="/proxyhub/app.js"></script>
 </body>

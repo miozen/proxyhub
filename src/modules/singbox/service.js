@@ -114,6 +114,12 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     return { id, is_default: shouldDefault };
   }
 
+  function validateTemplateContent(content) {
+    const resolved = normalizeTemplateInput(content);
+    validateTemplate(resolved);
+    return { success: true };
+  }
+
   function updateTemplate(userId, id, { name, content }) {
     const current = template(userId, id);
     if (!current) return null;
@@ -361,6 +367,7 @@ export function createSingboxService({ database, config, fetchJson = fetchJsonSa
     template,
     userTemplates,
     defaultTemplate,
+    validateTemplateContent,
     createTemplate,
     updateTemplate,
     deleteTemplate,

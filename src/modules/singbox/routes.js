@@ -140,6 +140,14 @@ export function createSingboxRouter({ database, config, auth, service }) {
     response.json({ template: templatePayload(row) });
   }
 
+  function validateTemplate(request, response) {
+    try {
+      response.json(service.validateTemplateContent(request.body?.content));
+    } catch (error) {
+      response.status(400).json({ success: false, error: error.message });
+    }
+  }
+
   function createTemplate(request, response) {
     try {
       response.status(201).json(service.createTemplate(request.auth.user.id, {
@@ -176,6 +184,7 @@ export function createSingboxRouter({ database, config, auth, service }) {
 
   router.get('/templates', listTemplates);
   router.get('/templates/:id', getTemplate);
+  router.post('/templates/validate', auth.requireCsrf, validateTemplate);
   router.post('/templates', auth.requireCsrf, createTemplate);
   router.put('/templates/:id', auth.requireCsrf, updateTemplate);
   router.delete('/templates/:id', auth.requireCsrf, deleteTemplate);
@@ -183,6 +192,7 @@ export function createSingboxRouter({ database, config, auth, service }) {
 
   router.get('/admin/templates', auth.requireOwner, listTemplates);
   router.get('/admin/templates/:id', auth.requireOwner, getTemplate);
+  router.post('/admin/templates/validate', auth.requireOwner, auth.requireCsrf, validateTemplate);
   router.post('/admin/templates', auth.requireOwner, auth.requireCsrf, createTemplate);
   router.put('/admin/templates/:id', auth.requireOwner, auth.requireCsrf, updateTemplate);
   router.delete('/admin/templates/:id', auth.requireOwner, auth.requireCsrf, deleteTemplate);

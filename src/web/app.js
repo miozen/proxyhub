@@ -1,5 +1,9 @@
 const { createApp } = Vue;
 
+const SINGBOX_SCHEMA_URL = 'https://sing-box.sagernet.org/schema.json';
+const MONACO_BASE_URL = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.56.0/min';
+
+
 const RunTable = {
   props: ['runs'],
   template: `<div class="table-wrap"><table><thead><tr><th>状态</th><th>开始时间</th><th>结果</th></tr></thead><tbody><tr v-for="run in runs" :key="run.id"><td><span class="badge" :class="run.status">{{run.status}}</span></td><td>{{new Date(run.started_at).toLocaleString()}}</td><td>{{run.error_text || summary(run.summary_json)}}</td></tr><tr v-if="!runs.length"><td colspan="3" class="empty">暂无生成记录</td></tr></tbody></table></div>`,
@@ -21,6 +25,9 @@ createApp({
     subscriptionSaving: false, generationTesting: false, generationTestedAt: null,
     subscriptionForm: {}, regions: ['HK', 'TW', 'SG', 'JP', 'US'],
     templateForm: { id: null, name: '', content: '' },
+    templateValidation: { status: 'idle', label: '等待校验', message: '选择或编辑模板后自动校验' },
+    templateValidationTimer: null, templateValidationRun: 0,
+    monacoEditor: null, monacoReady: false, monacoLoading: false, monacoConfigured: false,
     account: { username: '', currentPassword: '', newPassword: '' },
     nav: [
       { id: 'dashboard', label: '总览', icon: '◫' }, { id: 'subscriptions', label: '我的订阅', icon: '⌁' },
@@ -46,7 +53,13 @@ createApp({
     enabledSubs() { return this.subscriptions.filter((item) => item.enabled).length; },
     pendingUsers() { return this.users.filter((item) => item.status === 'pending').length; }
   },
-  watch: { page() { this.refreshPage(); } },
+  watch: {
+    page() { this.refreshPage(); },
+    'templateForm.content'() {
+      this.syncTemplateEditor();
+      this.scheduleTemplateValidation();
+    }
+  },
   async mounted() { await this.restore(); },
   methods: {
     async api(path, options = {}) {
@@ -123,6 +136,7 @@ createApp({
     async loadTemplates() {
       this.templates = (await this.api('/api/templates')).templates;
       if (!this.templateForm.id && this.templates.length) await this.selectTemplate(this.templates[0]);
+      if (this.page === 'templates') this.$nextTick(() => this.initTemplateEditor());
     },
     async loadSettings() {
       const [system, singbox] = await Promise.all([
@@ -231,15 +245,16 @@ createApp({
       } catch (error) { this.flash(error.message, 'error'); }
       finally { this.generationTesting = false; }
     },
-    newTemplate() { this.templateForm = { id: null, name: '新模板', content: '{\n  "outbounds": []\n}' }; },
+    newTemplate() {
+      this.setTemplateContent('{\n  "outbounds": []\n}', { id: null, name: '新模板' });
+    },
     async selectTemplate(tpl) {
       if (!tpl) return;
       const data = await this.api(`/api/templates/${tpl.id}`);
-      this.templateForm = {
+      this.setTemplateContent(JSON.stringify(data.template.content, null, 2), {
         id: data.template.id,
-        name: data.template.name,
-        content: JSON.stringify(data.template.content, null, 2)
-      };
+        name: data.template.name
+      });
     },
     async cloneTemplate() {
       if (!this.templateForm.content) return this.flash('请先选择模板', 'error');
@@ -269,7 +284,7 @@ createApp({
     async deleteTemplate() {
       if (!this.templateForm.id || !confirm(`删除模板“${this.templateForm.name}”？`)) return;
       await this.api(`/api/templates/${this.templateForm.id}`, { method: 'DELETE' });
-      this.templateForm = { id: null, name: '', content: '' };
+      this.setTemplateContent('', { id: null, name: '' });
       await this.loadTemplates();
       this.flash('模板已删除');
     },
@@ -280,8 +295,126 @@ createApp({
       this.flash('默认模板已更新');
     },
     formatTemplate() {
-      try { this.templateForm.content = JSON.stringify(JSON.parse(this.templateForm.content), null, 2); }
+      try { this.setTemplateContent(JSON.stringify(JSON.parse(this.templateForm.content), null, 2)); }
       catch (error) { this.flash(`模板无效：${error.message}`, 'error'); }
+    },
+    setTemplateContent(content, patch = {}) {
+      this.templateForm = { ...this.templateForm, ...patch, content };
+      this.$nextTick(() => {
+        this.syncTemplateEditor();
+        this.scheduleTemplateValidation(80);
+      });
+    },
+    initTemplateEditor() {
+      if (this.monacoEditor || this.monacoLoading || !window.require) {
+        if (this.monacoEditor) this.$nextTick(() => this.monacoEditor.layout());
+        return;
+      }
+      this.monacoLoading = true;
+      window.require.config({ paths: { vs: `${MONACO_BASE_URL}/vs` } });
+      window.require(['vs/editor/editor.main'], async () => {
+        try {
+          await this.configureMonaco();
+          const container = document.getElementById('template-content-editor');
+          if (!container || this.monacoEditor) return;
+          const uri = window.monaco.Uri.parse('inmemory://proxyhub/template.singbox.json');
+          const model = window.monaco.editor.createModel(this.templateForm.content || '', 'json', uri);
+          this.monacoEditor = window.monaco.editor.create(container, {
+            model,
+            theme: 'vs-dark',
+            automaticLayout: true,
+            minimap: { enabled: false },
+            tabSize: 2,
+            insertSpaces: true,
+            scrollBeyondLastLine: false,
+            wordWrap: 'on'
+          });
+          model.onDidChangeContent(() => {
+            const value = model.getValue();
+            if (value !== this.templateForm.content) this.templateForm.content = value;
+            this.scheduleTemplateValidation();
+          });
+          window.monaco.editor.onDidChangeMarkers((uris) => {
+            if (uris.some((item) => item.toString() === uri.toString())) this.updateTemplateValidationFromMarkers();
+          });
+          this.monacoReady = true;
+          this.scheduleTemplateValidation(80);
+        } catch (error) {
+          this.templateValidation = { status: 'warning', label: '编辑器降级', message: `Monaco 加载失败：${error.message}` };
+        } finally {
+          this.monacoLoading = false;
+        }
+      });
+    },
+    async configureMonaco() {
+      if (this.monacoConfigured || !window.monaco) return;
+      let schema = null;
+      try {
+        const response = await fetch(SINGBOX_SCHEMA_URL, { cache: 'force-cache' });
+        if (response.ok) schema = await response.json();
+      } catch {}
+      const schemaEntry = {
+        uri: SINGBOX_SCHEMA_URL,
+        fileMatch: ['inmemory://proxyhub/template.singbox.json']
+      };
+      if (schema) schemaEntry.schema = schema;
+      window.monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+        validate: true,
+        allowComments: false,
+        trailingCommas: 'error',
+        schemaValidation: 'error',
+        schemas: [schemaEntry]
+      });
+      this.monacoConfigured = true;
+    },
+    syncTemplateEditor() {
+      const model = this.monacoEditor?.getModel?.();
+      if (model && model.getValue() !== this.templateForm.content) model.setValue(this.templateForm.content || '');
+    },
+    scheduleTemplateValidation(delay = 350) {
+      clearTimeout(this.templateValidationTimer);
+      this.templateValidationTimer = setTimeout(() => this.validateTemplateNow(), delay);
+    },
+    updateTemplateValidationFromMarkers() {
+      const model = this.monacoEditor?.getModel?.();
+      if (!model || !window.monaco) return false;
+      const markers = window.monaco.editor.getModelMarkers({ resource: model.uri })
+        .filter((marker) => marker.severity >= window.monaco.MarkerSeverity.Warning);
+      if (!markers.length) return false;
+      const first = markers[0];
+      this.templateValidation = {
+        status: 'error',
+        label: 'Schema 未通过',
+        message: `第 ${first.startLineNumber} 行：${first.message}`
+      };
+      return true;
+    },
+    async validateTemplateNow() {
+      const content = String(this.templateForm.content || '').trim();
+      if (!content) {
+        this.templateValidation = { status: 'idle', label: '等待校验', message: '模板内容为空' };
+        return false;
+      }
+      try { JSON.parse(content); }
+      catch (error) {
+        this.templateValidation = { status: 'error', label: 'JSON 未通过', message: error.message };
+        return false;
+      }
+      if (this.updateTemplateValidationFromMarkers()) return false;
+      const run = ++this.templateValidationRun;
+      this.templateValidation = { status: 'checking', label: '校验中', message: '正在检查模板引用关系' };
+      try {
+        await this.api('/api/templates/validate', { method: 'POST', body: { content: JSON.parse(content) } });
+        if (run === this.templateValidationRun) {
+          this.templateValidation = { status: 'success', label: '校验通过', message: 'JSON、sing-box schema 与模板引用检查通过' };
+        }
+        return true;
+      } catch (error) {
+        if (run === this.templateValidationRun) {
+          this.templateValidation = { status: 'error', label: '引用未通过', message: error.message };
+        }
+        return false;
+      }
     },
     async userAction(item, action) { await this.api(`/api/admin/users/${item.id}/${action}`, { method: 'POST' }); await this.loadUsers(); },
     async deleteUser(item) { if (!confirm(`永久删除用户“${item.username}”？`)) return; await this.api(`/api/admin/users/${item.id}`, { method: 'DELETE' }); await this.loadUsers(); },

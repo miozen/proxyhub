@@ -31,3 +31,17 @@ test('S2 registration errors remain visible before authentication', () => {
   const javascript = fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8');
   assert.match(javascript, /registration_disabled:\s*'注册功能已关闭'/);
 });
+
+
+test('templates editor loads Monaco with sing-box schema diagnostics', () => {
+  const javascript = fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../src/web/templates.css', import.meta.url), 'utf8');
+  assert.match(html, /monaco-editor@0\.56\.0\/min\/vs\/loader\.js/);
+  assert.match(html, /id="template-content-editor"/);
+  assert.match(html, /templateValidation\.label/);
+  assert.match(javascript, /https:\/\/sing-box\.sagernet\.org\/schema\.json/);
+  assert.match(javascript, /jsonDefaults\.setDiagnosticsOptions/);
+  assert.match(javascript, /\/api\/templates\/validate/);
+  assert.match(css, /\.template-monaco/);
+  assert.match(css, /\.template-status\.success/);
+});

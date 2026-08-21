@@ -12,3 +12,14 @@
 @media(max-width:1050px){.template-toolbar{grid-template-columns:1fr 1fr}.template-toolbar .actions{grid-column:1/-1}}
 @media(max-width:700px){.template-toolbar{grid-template-columns:1fr}.template-editor textarea{min-height:420px}}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.template-status{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#0b131e;color:var(--muted)}
+.template-status strong{color:var(--text);white-space:nowrap}
+.template-status.success{border-color:#245d45;background:#0d241d;color:#82d9a3}
+.template-status.success strong{color:#82d9a3}
+.template-status.error{border-color:#71323d;background:#2a1219;color:#ff9aa3}
+.template-status.error strong{color:#ff9aa3}
+.template-status.warning,.template-status.checking{border-color:#665026;background:#2b2414;color:var(--amber)}
+.template-status.warning strong,.template-status.checking strong{color:var(--amber)}
+.template-monaco{min-height:560px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0a111b}
+.template-monaco:not(.ready){display:none}
+@media(max-width:700px){.template-status{align-items:flex-start;flex-direction:column;gap:4px}.template-monaco{min-height:420px}}
